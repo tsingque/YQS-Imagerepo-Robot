@@ -57,7 +57,8 @@ def build_user_prompt(rules_prompt: str, image_path: Path, metadata: dict[str, s
         "注意：最终产物仍然由程序写入 案例素材清单_表格.md、案例素材清单.xlsx 和 素材分辨率.csv。",
         "这批图片主要用于 PPT 自动调用，请默认从正向用途描述图片，优先使用“适合用于…… / 可用于…… / 推荐用于……”等表达。",
         "不要默认输出“不适合用于……”；只有图片严重损坏、明显无关或无法识别时，才在 notes 中说明限制。",
-        "如果文件元信息包含飞书多维表格字段，请把“名字”和“描述”作为高置信度人工输入；“是否可用”只来自表格字段，AI 不负责改变或审核它。",
+        "如果文件元信息包含飞书多维表格字段，请把“名字”和“描述”作为高置信度人工输入；“是否可商用”只来自表格字段，AI 不负责判断、改变或审核商用权限。",
+        "不要输出“版权需确认”“建议确认授权”“不适合商用”等版权审核话术；source_copyright 应按“来源/有”或“来源/无”表达。",
         "图片分类必须优先使用四类之一：背景、内容、概念、信息。",
         "",
         "内部 JSON 字段必须包含：",
@@ -74,7 +75,7 @@ def build_user_prompt(rules_prompt: str, image_path: Path, metadata: dict[str, s
         f"- bitable_material_name: {metadata.get('素材名', '')}",
         f"- bitable_description: {metadata.get('描述', '')}",
         f"- bitable_source: {metadata.get('来源', '')}",
-        f"- bitable_usable: {metadata.get('是否可用', '')}",
+        f"- bitable_commercial: {metadata.get('是否可商用') or metadata.get('是否可用', '')}",
         f"- bitable_original_attachment: {metadata.get('原始附件名', '')}",
     ])
 

@@ -262,7 +262,7 @@ def build_metadata(image_path: Path) -> dict[str, str]:
         "file_size": file_size_label(image_path),
     }
     bitable_metadata = bitable_sync.load_metadata_for_image(image_path.name)
-    for key in ["record_id", "名字", "描述", "来源", "是否可用", "原始附件名", "本地原图路径"]:
+    for key in ["record_id", "名字", "描述", "来源", "是否可商用", "是否可用", "原始附件名", "本地原图路径"]:
         if bitable_metadata.get(key):
             metadata[key] = str(bitable_metadata[key])
     project, material_name = split_project_and_name(metadata.get("名字", ""))
@@ -323,6 +323,10 @@ def run(limit: int = 0, dry_run: bool = False) -> dict:
         try:
             metadata = build_metadata(image_path)
             result = recognize_with_provider(image_path, rules_prompt, metadata)
+            if metadata.get("来源"):
+                result["bitable_source"] = metadata["来源"]
+            if metadata.get("是否可商用") or metadata.get("是否可用"):
+                result["bitable_commercial"] = metadata.get("是否可商用") or metadata.get("是否可用")
             usage = record_token_usage(image_path.name, result.pop("_token_usage", None), current_provider())
             summary["token_usage"]["prompt_tokens"] += token_number(usage["prompt_tokens"])
             summary["token_usage"]["completion_tokens"] += token_number(usage["completion_tokens"])

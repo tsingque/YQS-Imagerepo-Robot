@@ -91,6 +91,11 @@ def normalize_result(result: dict, fallback_resolution: str) -> dict[str, str]:
     filename = ensure_chinese_filename(result)
     category = result.get("category") or result.get("material_type") or result.get("suggested_folder") or "其他_待判断"
     suggested_folder = result.get("suggested_folder") or category
+    source = sanitize_cell(result.get("bitable_source") or result.get("来源") or result.get("source", ""))
+    commercial = sanitize_cell(result.get("bitable_commercial") or result.get("是否可商用") or result.get("commercial", ""))
+    source_copyright = result.get("source_copyright")
+    if source or commercial:
+        source_copyright = f"{source or '来源未填'}/{commercial or '无'}"
 
     return {
         "分类": sanitize_cell(suggested_folder),
@@ -100,7 +105,7 @@ def normalize_result(result: dict, fallback_resolution: str) -> dict[str, str]:
         "想放在哪（章节/论点）": sanitize_cell(result.get("ppt_usage", "")),
         "配图说明文字（图注/要点）": sanitize_cell(result.get("caption", "")),
         "关键数据": sanitize_cell(result.get("key_data", "无") or "无"),
-        "来源/版权": sanitize_cell(result.get("source_copyright", "需确认")),
+        "来源/版权": sanitize_cell(source_copyright or "来源未填/无"),
         "状态": sanitize_cell(result.get("status", "已识别")),
         "resolution": sanitize_cell(result.get("resolution", fallback_resolution)),
     }

@@ -22,7 +22,7 @@ class BitableSyncTests(unittest.TestCase):
                 "描述": "2026-minduck图标",
                 "文件": [{"file_token": "tok1", "name": "logo.png", "size": 100}],
                 "来源": "下载",
-                "是否可用": "是",
+                "是否可商用": "有",
             },
         }
 
@@ -32,7 +32,7 @@ class BitableSyncTests(unittest.TestCase):
         self.assertEqual(parsed.name, "minduck图标")
         self.assertEqual(parsed.description, "2026-minduck图标")
         self.assertEqual(parsed.source, "下载")
-        self.assertEqual(parsed.usable, "是")
+        self.assertEqual(parsed.usable, "有")
         self.assertEqual(parsed.attachments[0]["file_token"], "tok1")
 
     def test_sync_downloads_usable_records_and_skips_unusable(self):
@@ -50,7 +50,7 @@ class BitableSyncTests(unittest.TestCase):
                         "描述": "用于产品页",
                         "文件": [{"file_token": "tok-y", "name": "demo.png"}],
                         "来源": "截图",
-                        "是否可用": "是",
+                        "是否可商用": "有",
                     },
                 },
                 {
@@ -60,7 +60,7 @@ class BitableSyncTests(unittest.TestCase):
                         "描述": "不进入素材库",
                         "文件": [{"file_token": "tok-n", "name": "skip.png"}],
                         "来源": "下载",
-                        "是否可用": "否",
+                        "是否可商用": "无",
                     },
                 },
             ]
@@ -84,7 +84,7 @@ class BitableSyncTests(unittest.TestCase):
             file_map = json.loads((runtime_dir / "bitable_file_map.json").read_text(encoding="utf-8"))
             self.assertEqual(file_map["rec-y_demo.png"]["record_id"], "rec-y")
             self.assertEqual(file_map["rec-y_demo.png"]["名字"], "可用图")
-            self.assertEqual(file_map["rec-y_demo.png"]["是否可用"], "是")
+            self.assertEqual(file_map["rec-y_demo.png"]["是否可商用"], "有")
 
     def test_sync_is_noop_when_client_not_configured(self):
         client = MagicMock()

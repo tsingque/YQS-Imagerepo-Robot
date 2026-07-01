@@ -23,17 +23,17 @@ class PromptMetadataTests(unittest.TestCase):
                 "名字": "minduck图标",
                 "描述": "2026-minduck图标",
                 "来源": "AI",
-                "是否可用": "y",
+                "是否可商用": "有",
                 "原始附件名": "logo.png",
             },
         )
 
         self.assertIn("适合用于", prompt)
-        self.assertIn("AI 不负责改变或审核", prompt)
+        self.assertIn("AI 不负责判断、改变或审核商用权限", prompt)
         self.assertIn("bitable_record_id: rec1", prompt)
         self.assertIn("bitable_name: minduck图标", prompt)
         self.assertIn("bitable_description: 2026-minduck图标", prompt)
-        self.assertIn("bitable_usable: y", prompt)
+        self.assertIn("bitable_commercial: 有", prompt)
 
 
 if __name__ == "__main__":

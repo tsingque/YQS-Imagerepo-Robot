@@ -41,7 +41,7 @@ class BitableFieldConfig:
     description: str = "描述"
     file: str = "文件"
     source: str = "来源"
-    usable: str = "是否可用"
+    usable: str = "是否可商用"
 
 
 @dataclass
@@ -65,7 +65,7 @@ def field_config_from_env() -> BitableFieldConfig:
         description=os.getenv("FEISHU_BITABLE_FIELD_DESCRIPTION", "描述"),
         file=os.getenv("FEISHU_BITABLE_FIELD_FILE", "文件"),
         source=os.getenv("FEISHU_BITABLE_FIELD_SOURCE", "来源"),
-        usable=os.getenv("FEISHU_BITABLE_FIELD_USABLE", "是否可用"),
+        usable=os.getenv("FEISHU_BITABLE_FIELD_COMMERCIAL", os.getenv("FEISHU_BITABLE_FIELD_USABLE", "是否可商用")),
     )
 
 
@@ -113,12 +113,15 @@ def attachment_values(value: Any) -> list[dict[str, Any]]:
 
 def parse_record(record: dict[str, Any], config: BitableFieldConfig) -> ParsedRecord:
     fields = record.get("fields", {}) if isinstance(record.get("fields"), dict) else {}
+    commercial_value = fields.get(config.usable)
+    if commercial_value is None and config.usable != "是否可用":
+        commercial_value = fields.get("是否可用")
     return ParsedRecord(
         record_id=str(record.get("record_id") or record.get("id") or "").strip(),
         name=text_value(fields.get(config.name)),
         description=text_value(fields.get(config.description)),
         source=text_value(fields.get(config.source)),
-        usable=text_value(fields.get(config.usable)).lower(),
+        usable=text_value(commercial_value).lower(),
         attachments=attachment_values(fields.get(config.file)),
     )
 
@@ -128,7 +131,11 @@ def is_pending(record: ParsedRecord) -> bool:
 
 
 def is_usable(record: ParsedRecord) -> bool:
-    return record.usable.strip().lower() in {"y", "yes", "true", "1", "可用", "是"}
+    return record.usable.strip().lower() in {"有", "y", "yes", "true", "1", "可商用", "可用", "是"}
+
+
+def commercial_label(record: ParsedRecord) -> str:
+    return "有" if is_usable(record) else "无"
 
 
 def safe_filename(text: str) -> str:
@@ -186,6 +193,7 @@ def metadata_for(record: ParsedRecord, attachment: dict[str, Any], local_path: P
         "名字": record.name,
         "描述": record.description,
         "来源": record.source,
+        "是否可商用": commercial_label(record),
         "是否可用": record.usable,
         "原始附件名": str(attachment.get("name") or attachment.get("filename") or ""),
         "本地原图路径": str(local_path.relative_to(PROJECT_DIR) if local_path.is_absolute() else local_path),
