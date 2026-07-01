@@ -65,7 +65,7 @@ def field_config_from_env() -> BitableFieldConfig:
         description=os.getenv("FEISHU_BITABLE_FIELD_DESCRIPTION", "描述"),
         file=os.getenv("FEISHU_BITABLE_FIELD_FILE", "文件"),
         source=os.getenv("FEISHU_BITABLE_FIELD_SOURCE", "来源"),
-        usable=os.getenv("FEISHU_BITABLE_FIELD_COMMERCIAL", os.getenv("FEISHU_BITABLE_FIELD_USABLE", "是否可商用")),
+        usable=os.getenv("FEISHU_BITABLE_FIELD_COMMERCIAL", "是否可商用"),
     )
 
 
@@ -114,8 +114,9 @@ def attachment_values(value: Any) -> list[dict[str, Any]]:
 def parse_record(record: dict[str, Any], config: BitableFieldConfig) -> ParsedRecord:
     fields = record.get("fields", {}) if isinstance(record.get("fields"), dict) else {}
     commercial_value = fields.get(config.usable)
-    if commercial_value is None and config.usable != "是否可用":
-        commercial_value = fields.get("是否可用")
+    for fallback_name in ("是否可商用", os.getenv("FEISHU_BITABLE_FIELD_USABLE", ""), "是否可用"):
+        if commercial_value is None and fallback_name and fallback_name != config.usable:
+            commercial_value = fields.get(fallback_name)
     return ParsedRecord(
         record_id=str(record.get("record_id") or record.get("id") or "").strip(),
         name=text_value(fields.get(config.name)),

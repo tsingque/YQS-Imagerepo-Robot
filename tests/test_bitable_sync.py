@@ -86,6 +86,24 @@ class BitableSyncTests(unittest.TestCase):
             self.assertEqual(file_map["rec-y_demo.png"]["名字"], "可用图")
             self.assertEqual(file_map["rec-y_demo.png"]["是否可商用"], "有")
 
+    def test_parse_record_prefers_commercial_field_when_legacy_env_exists(self):
+        record = {
+            "record_id": "rec-commercial",
+            "fields": {
+                "名字": "商用图",
+                "描述": "用于正式 PPT",
+                "文件": [{"file_token": "tok", "name": "demo.png"}],
+                "来源": "拍摄",
+                "是否可商用": "有",
+                "是否可用": "否",
+            },
+        }
+
+        parsed = bitable_sync.parse_record(record, bitable_sync.BitableFieldConfig())
+
+        self.assertEqual(parsed.usable, "有")
+        self.assertTrue(bitable_sync.is_usable(parsed))
+
     def test_sync_is_noop_when_client_not_configured(self):
         client = MagicMock()
         client.configured.return_value = False
