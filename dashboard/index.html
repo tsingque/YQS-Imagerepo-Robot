@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>素材处理面板</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">YQS Material Repository</p>
+          <h1>素材处理面板</h1>
+        </div>
+        <div class="toolbar" aria-label="素材操作">
+          <button class="icon-button" id="refreshButton" type="button" title="刷新数据" aria-label="刷新数据">
+            <span aria-hidden="true">↻</span>
+          </button>
+          <button class="action-button" id="loadButton" type="button">
+            <span aria-hidden="true">⇣</span>
+            更新 images_raw
+          </button>
+          <button class="action-button secondary-action" id="compressButton" type="button">
+            <span aria-hidden="true">⬇</span>
+            压缩 images_raw
+          </button>
+          <button class="danger-button" id="clearButton" type="button">
+            <span aria-hidden="true">⌫</span>
+            清空 images_raw
+          </button>
+        </div>
+      </header>
+
+      <section class="status-strip" aria-live="polite">
+        <div>
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">正在读取素材状态...</span>
+        </div>
+        <time id="updatedAt"></time>
+      </section>
+
+      <section class="metrics-grid" id="metricsGrid" aria-label="素材数量"></section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">DeerFlow</p>
+            <h2>AI 托管处理</h2>
+          </div>
+          <button class="action-button agent-action" id="agentButton" type="button">
+            <span aria-hidden="true">▶</span>
+            一键托管
+          </button>
+        </div>
+        <div class="agent-layout">
+          <div class="agent-summary">
+            <div>
+              <p class="eyebrow">状态</p>
+              <strong id="agentRunning">未启动</strong>
+            </div>
+            <div>
+              <p class="eyebrow">模式</p>
+              <strong id="agentMode">-</strong>
+            </div>
+            <div>
+              <p class="eyebrow">完成时间</p>
+              <strong id="agentFinishedAt">-</strong>
+            </div>
+          </div>
+          <p class="recognition-message" id="agentMessage">尚未启动 DeerFlow 托管处理。</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Feishu</p>
+            <h2>飞书通知</h2>
+          </div>
+          <button class="action-button secondary-action" id="feishuTestButton" type="button">
+            <span aria-hidden="true">✉</span>
+            发送测试通知
+          </button>
+        </div>
+        <div class="feishu-grid">
+          <div>
+            <p class="eyebrow">配置状态</p>
+            <strong id="feishuConfigured">未配置</strong>
+          </div>
+          <div>
+            <p class="eyebrow">接收类型</p>
+            <strong id="feishuReceiveType">chat_id</strong>
+          </div>
+          <div>
+            <p class="eyebrow">识图完成通知</p>
+            <strong id="feishuAutoNotify">开启</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">AI Recognition</p>
+            <h2>AI 识图</h2>
+          </div>
+          <button class="action-button" id="recognizeButton" type="button">
+            <span aria-hidden="true">◎</span>
+            开始 AI 识图
+          </button>
+        </div>
+        <div class="recognition-layout">
+          <div class="recognition-summary">
+            <div>
+              <p class="eyebrow">进度</p>
+              <strong id="recognitionProgress">0 / 0</strong>
+            </div>
+            <div>
+              <p class="eyebrow">失败</p>
+              <strong id="recognitionFailed">0</strong>
+            </div>
+            <div>
+              <p class="eyebrow">待识图</p>
+              <strong id="recognitionPending">0</strong>
+            </div>
+          </div>
+          <div class="progress-track" aria-label="AI 识图进度">
+            <div class="progress-bar" id="recognitionBar"></div>
+          </div>
+          <p class="recognition-message" id="recognitionMessage">尚未启动 AI 识图。</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Similarity</p>
+            <h2>相似图片检查</h2>
+          </div>
+          <button class="action-button secondary-action" id="similarityButton" type="button">
+            <span aria-hidden="true">≋</span>
+            检查相似图片
+          </button>
+        </div>
+        <div class="similarity-layout">
+          <div class="similarity-summary">
+            <div>
+              <p class="eyebrow">扫描图片</p>
+              <strong id="similarityImageCount">0</strong>
+            </div>
+            <div>
+              <p class="eyebrow">疑似相似</p>
+              <strong id="similarityPairCount">0</strong>
+            </div>
+            <div>
+              <p class="eyebrow">高度相似</p>
+              <strong id="similarityHighCount">0</strong>
+            </div>
+          </div>
+          <p class="recognition-message" id="similarityMessage">尚未检查相似图片。</p>
+          <div class="similarity-list" id="similarityList"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Directories</p>
+            <h2>处理链路</h2>
+          </div>
+        </div>
+        <div class="directory-grid" id="directoryGrid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <h2>图片预览</h2>
+          </div>
+          <div class="tabs" role="tablist" aria-label="预览目录">
+            <button class="tab is-active" data-preview-key="raw" type="button">images_raw</button>
+            <button class="tab" data-preview-key="recognized" type="button">AI 识图完成</button>
+            <button class="tab" data-preview-key="compressed" type="button">压缩输出</button>
+            <button class="tab" data-preview-key="finished" type="button">成品素材</button>
+          </div>
+        </div>
+        <div class="preview-grid" id="previewGrid"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

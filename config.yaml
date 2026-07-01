@@ -1,0 +1,54 @@
+config_version: 1
+log_level: info
+
+models:
+  - name: glm-agent
+    display_name: GLM Agent
+    description: YQS-Imagerepo workflow coordinator
+    use: langchain_openai:ChatOpenAI
+    model: glm-4-flash
+    api_key: $GLM_API_KEY
+    base_url: $GLM_OPENAI_BASE_URL
+    temperature: 0
+    supports_vision: false
+    supports_thinking: false
+
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false
+
+database:
+  backend: sqlite
+  sqlite_dir: .deer-flow/data
+
+tool_search:
+  enabled: false
+
+memory:
+  enabled: false
+
+summarization:
+  enabled: false
+
+title:
+  enabled: false
+
+tool_groups:
+  - name: yqs_material
+
+tools:
+  - name: get_repository_status
+    group: yqs_material
+    use: python.yqs_deerflow_tools:get_repository_status_tool
+  - name: compress_raw_images
+    group: yqs_material
+    use: python.yqs_deerflow_tools:compress_raw_images_tool
+  - name: run_glm_recognition
+    group: yqs_material
+    use: python.yqs_deerflow_tools:run_glm_recognition_tool
+  - name: append_md_table_to_xlsx
+    group: yqs_material
+    use: python.yqs_deerflow_tools:append_md_table_to_xlsx_tool
+  - name: send_feishu_summary
+    group: yqs_material
+    use: python.yqs_deerflow_tools:send_feishu_summary_tool

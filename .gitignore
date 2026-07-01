@@ -1,0 +1,33 @@
+.env
+*.env
+!.env.example
+runtime/
+__pycache__/
+*.pyc
+.DS_Store
+._*
+
+# Local runtime output
+logs/
+*.log
+image_compressor/images_raw/
+image_compressor/images_compressed/
+image_compressor/images_recognized/
+image_compressor/compression_report.md
+feishu_trans_repo/
+feishu-trans-repo/
+md_trans_repo/
+
+# DeerFlow local/runtime files
+deer-flow/.env
+deer-flow/frontend/.env
+deer-flow/config.yaml
+deer-flow/extensions_config.json
+deer-flow/backend/.venv/
+deer-flow/backend/.deer-flow/
+deer-flow/logs/
+deer-flow/pr-build/
+deer-flow/.omc/
+deer-flow/.agent/
+deer-flow/.claude/
+deer-flow/.worktrees/
