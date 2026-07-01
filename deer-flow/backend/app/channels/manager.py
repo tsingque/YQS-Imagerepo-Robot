@@ -1070,6 +1070,12 @@ class ChannelManager:
     async def _handle_message(self, msg: InboundMessage) -> None:
         msg = _apply_effective_owner(msg)
         try:
+            yqs_command = _classify_yqs_material_command(msg.text)
+            if yqs_command:
+                async with self._semaphore:
+                    await self._handle_yqs_material_command(msg, yqs_command)
+                return
+
             # Non-command chat can be rejected before it consumes a semaphore
             # slot. Commands are handled below because provider adapters consume
             # binding commands before manager dispatch, and _handle_command()
@@ -1082,9 +1088,6 @@ class ChannelManager:
                 return
 
             async with self._semaphore:
-                if yqs_command := _classify_yqs_material_command(msg.text):
-                    await self._handle_yqs_material_command(msg, yqs_command)
-                    return
                 if msg.msg_type == InboundMessageType.COMMAND:
                     await self._handle_command(msg)
                 else:
@@ -1123,7 +1126,15 @@ class ChannelManager:
             if command == "status":
                 reply = format_status_reply(read_yqs_status())
             else:
-                result = await asyncio.to_thread(run_yqs_direct)
+                env_overrides: dict[str, str] = {}
+                if msg.channel_name == "feishu" and msg.chat_id:
+                    env_overrides.update(
+                        {
+                            "FEISHU_RECEIVE_ID_TYPE": "chat_id",
+                            "FEISHU_RECEIVE_ID": msg.chat_id,
+                        }
+                    )
+                result = await asyncio.to_thread(run_yqs_direct, None, env_overrides)
                 reply = str(result.get("reply") or result.get("message") or "素材处理流程已结束。")
         except Exception as exc:
             logger.exception("[Manager] YQS material command failed: command=%s", command)

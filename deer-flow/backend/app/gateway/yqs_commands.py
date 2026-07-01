@@ -93,15 +93,18 @@ def _parse_runner_stdout(stdout: str) -> dict[str, Any]:
         return {"ok": False, "reply": text[-2000:]}
 
 
-def run_yqs_direct(timeout_seconds: int | None = None) -> dict[str, Any]:
+def run_yqs_direct(timeout_seconds: int | None = None, env_overrides: dict[str, str] | None = None) -> dict[str, Any]:
     root = project_root()
+    env = {**os.environ, "DEER_FLOW_PROJECT_ROOT": str(root), "YQS_PROJECT_ROOT": str(root)}
+    if env_overrides:
+        env.update(env_overrides)
     proc = subprocess.run(
         [runner_python(), "python/deerflow_runner.py", "--direct"],
         cwd=str(root),
         capture_output=True,
         text=True,
         timeout=timeout_seconds or DEFAULT_TIMEOUT_SECONDS,
-        env={**os.environ, "DEER_FLOW_PROJECT_ROOT": str(root), "YQS_PROJECT_ROOT": str(root)},
+        env=env,
         check=False,
     )
     payload = _parse_runner_stdout(proc.stdout)
