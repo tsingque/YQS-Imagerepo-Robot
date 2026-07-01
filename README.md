@@ -103,13 +103,31 @@ git clone https://github.com/tsingque/YQS-Imagerepo-Robot.git
 cd YQS-Imagerepo-Robot
 ```
 
-运行 `.env` 引导脚本：
+运行 `.env` 网页配置向导：
 
 ```bash
 bash scripts/configure_env_ubuntu.sh
 ```
 
-这个脚本会引导填写：
+脚本会在本机启动一个临时网页服务，默认地址：
+
+```text
+http://127.0.0.1:8787
+```
+
+在浏览器里填完后点击「保存配置文件」。如果工作站没有图形界面，可以在自己电脑上通过 SSH 端口转发访问：
+
+```bash
+ssh -L 8787:127.0.0.1:8787 用户名@工作站IP
+```
+
+然后在自己电脑浏览器打开：
+
+```text
+http://127.0.0.1:8787
+```
+
+这个网页会引导填写：
 
 - GLM / Kimi 识图配置
 - 飞书应用 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
@@ -347,7 +365,8 @@ image_compressor/images_compressed/
 | `runtime/processed_files.json` | 已识图文件记录 |
 | `python/` | 项目脚本 |
 | `deer-flow/` | DeerFlow 和飞书 Bot 服务 |
-| `scripts/configure_env_ubuntu.sh` | Ubuntu 工作站 `.env` 引导配置脚本 |
+| `scripts/configure_env_ubuntu.sh` | Ubuntu 工作站 `.env` 网页配置向导启动脚本 |
+| `scripts/configure_env_web.py` | `.env` 网页配置向导服务 |
 
 飞书图片来源记录在：
 
@@ -503,4 +522,4 @@ git push
 - 本地 raw / compressed 图片队列
 - 桌面上的一次性密钥备份文档
 
-`.gitignore` 已经默认排除这些文件。迁移到公司工作站后，使用 `scripts/configure_env_ubuntu.sh` 重新生成 `.env`，不要把旧密钥长期留在仓库或桌面文档里。
+`.gitignore` 已经默认排除这些文件。迁移到公司工作站后，使用 `scripts/configure_env_ubuntu.sh` 打开网页向导重新生成 `.env`，不要把旧密钥长期留在仓库或桌面文档里。
