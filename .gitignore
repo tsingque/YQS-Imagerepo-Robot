@@ -7,10 +7,6 @@ __pycache__/
 .DS_Store
 ._*
 
-# Local working notes / generated handoff docs
-docs/YQS-Imagerepo_项目基本概况.md
-docs/飞书多维表格表单填写使用说明.md
-
 # Local runtime output
 logs/
 *.log
