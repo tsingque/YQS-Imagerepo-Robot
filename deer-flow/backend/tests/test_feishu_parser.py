@@ -367,15 +367,15 @@ def test_feishu_echo_command_syncs_knowledge_base(monkeypatch):
                 "errors": [],
             }
         )
-        monkeypatch.setattr(channel, "_sync_yqs_knowledge_base", sync)
+        monkeypatch.setattr(channel, "_sync_yqs_echo_target", sync)
 
         handled = await channel._handle_yqs_direct_command("回显", "msg_echo", "chat_1")
 
         assert handled is True
         assert sync.call_count == 1
         card = channel._reply_card.call_args.args[1]
-        assert "飞书知识库回显完成" in card
-        assert "已创建知识库：YQS PPT 图片素材库" in card
+        assert "飞书文件夹回显完成" in card
+        assert "飞书文件夹：YQS PPT 图片素材库" in card
         assert "已上传：2 张" in card
         assert "已跳过：1 张" in card
 

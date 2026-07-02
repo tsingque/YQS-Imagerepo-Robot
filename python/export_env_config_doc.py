@@ -60,7 +60,7 @@ def main() -> None:
         "- 飞书开放平台事件订阅和应用权限仍然有效。",
         "- 多维表格字段仍为：`项目`、`名字`、`描述`、`文件`、`来源`、`来源二级分类`、`是否可商用`。",
         "- `项目` 字段有值时会进入 `case_materials/项目/`，为空时进入 `case_materials/通用素材库/`；`项目-名字` 写法已废弃。",
-        "- 飞书知识库回显配置：已有知识库填 `FEISHU_KNOWLEDGE_SPACE_ID`；需要自动创建时额外配置 `FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN`。",
+        "- 飞书回显配置：填 `FEISHU_ECHO_DRIVE_FOLDER_TOKEN`，系统会把 `case_materials/` 同步到这个飞书文件夹。",
         "- Kimi/GLM token 监控文件：`runtime/ai_token_usage.json`。",
         "- 迁移验证完成后删除本备份文件，并按需轮换密钥。",
         "",

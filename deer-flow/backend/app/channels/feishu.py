@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 PENDING_CLARIFICATION_TTL_SECONDS = 30 * 60
 YQS_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 YQS_FORM_COMMANDS = {"表单", "图片表单", "上传表单", "素材表单"}
-YQS_ECHO_COMMANDS = {"回显", "图片回显", "知识库回显", "同步知识库"}
+YQS_ECHO_COMMANDS = {"回显", "图片回显", "文件夹回显", "同步文件夹"}
 YQS_UNMENTIONED_COMMANDS = {
     "启动",
     "启动素材处理",
@@ -1040,7 +1040,7 @@ class FeishuChannel(Channel):
             await self._reply_yqs_form_link(message_id)
             return True
         if normalized in YQS_ECHO_COMMANDS:
-            await self._reply_yqs_knowledge_sync(message_id)
+            await self._reply_yqs_echo_sync(message_id)
             return True
         return False
 
@@ -1065,17 +1065,18 @@ class FeishuChannel(Channel):
             ),
         )
 
-    async def _reply_yqs_knowledge_sync(self, message_id: str) -> None:
+    async def _reply_yqs_echo_sync(self, message_id: str) -> None:
         try:
-            summary = await asyncio.to_thread(self._sync_yqs_knowledge_base)
+            summary = await asyncio.to_thread(self._sync_yqs_echo_target)
         except Exception as exc:
-            logger.exception("[Feishu] failed to sync YQS knowledge base")
-            await self._reply_card(message_id, f"**飞书知识库回显失败**\n\n{exc}")
+            logger.exception("[Feishu] failed to sync YQS echo folder")
+            await self._reply_card(message_id, f"**飞书文件夹回显失败**\n\n{exc}")
             return
 
         ok = bool(summary.get("ok"))
-        title = "**飞书知识库回显完成**" if ok else "**飞书知识库回显部分失败**"
-        space_line = "已创建知识库" if summary.get("created_space") else "知识库"
+        target_label = "飞书文件夹"
+        title = f"**{target_label}回显完成**" if ok else f"**{target_label}回显部分失败**"
+        space_line = target_label
         lines = [
             title,
             "",
@@ -1097,7 +1098,7 @@ class FeishuChannel(Channel):
         await self._reply_card(message_id, "\n".join(lines))
 
     @staticmethod
-    def _sync_yqs_knowledge_base() -> dict[str, Any]:
+    def _sync_yqs_echo_target() -> dict[str, Any]:
         project_root = _yqs_project_root()
         python_dir = project_root / "python"
         if str(python_dir) not in sys.path:

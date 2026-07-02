@@ -208,21 +208,21 @@ wiki:wiki
 docx:document
 ```
 
-### 飞书知识库回显配置
+### 飞书文件夹回显配置
 
-群聊发送 `回显` 会把本地成品素材同步到飞书知识库。常用配置如下：
+群聊发送 `回显` 会把本地成品素材同步到飞书云空间文件夹。你创建的文件夹链接：
 
 ```text
-FEISHU_KNOWLEDGE_SPACE_NAME=YQS PPT 图片素材库
-FEISHU_KNOWLEDGE_SPACE_ID=
-FEISHU_KNOWLEDGE_ROOT_NODE_TOKEN=
-FEISHU_KNOWLEDGE_PARENT_TYPE=wiki
-FEISHU_KNOWLEDGE_FOLDER_OBJ_TYPE=docx
-FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN=
-FEISHU_KNOWLEDGE_FORCE_UPLOAD=false
+https://wu35s592xy.feishu.cn/drive/folder/QDMwfuA16lSavSdosZ2cUKGNnG7
 ```
 
-已经有知识库时，优先填写 `FEISHU_KNOWLEDGE_SPACE_ID`。如果希望系统在知识库不存在时自动创建，需要配置 `FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN`；飞书创建知识库空间接口不接受普通 tenant token。
+对应配置如下：
+
+```text
+FEISHU_ECHO_DRIVE_FOLDER_TOKEN=QDMwfuA16lSavSdosZ2cUKGNnG7
+FEISHU_ECHO_PARENT_TYPE=explorer
+FEISHU_ECHO_FORCE_UPLOAD=false
+```
 
 ## 二、两种控制方式
 
@@ -294,7 +294,7 @@ runtime/deerflow_agent_state.json
 回显
 ```
 
-发送 `表单` 时，机器人会把图片上传表单链接发到当前群聊。发送 `回显` 时，机器人会检查飞书知识库是否存在，不存在则尝试创建，然后把本地 `case_materials/` 中已经处理并归类好的图片上传到飞书知识库；知识库里的目录结构会尽量和本地保持一致。
+发送 `表单` 时，机器人会把图片上传表单链接发到当前群聊。发送 `回显` 时，机器人会把本地 `case_materials/` 中已经处理并归类好的图片上传到已配置的飞书文件夹；云端目录结构会尽量和本地保持一致。
 
 除 `启动`、`状态`、`表单`、`回显` 这类明确命令，以及对机器人卡片的回复外，飞书群聊普通消息默认不再触发回复；需要普通问答时请 @ 机器人。
 
@@ -326,9 +326,9 @@ runtime/deerflow_agent_state.json
 
 `是否可商用` 是入库开关：`是` 表示已确认有商用权限，可以下载、压缩、识图并进入素材库；`否` 表示不处理、不进入素材库。AI 只读取这个字段，不判断或改变商用权限。
 
-### 2. 飞书知识库回显
+### 2. 飞书文件夹回显
 
-`回显` 会把本地成品素材库同步到飞书知识库，而不是把图片直接发回群聊。
+`回显` 会把本地成品素材库同步到飞书文件夹，而不是把图片直接发回群聊。
 
 同步源：
 
@@ -338,11 +338,10 @@ case_materials/
 
 同步规则：
 
-- 本地 `case_materials/项目/图片.jpg` 会进入飞书知识库的 `项目/图片.jpg`。
-- 本地存在多级目录时，飞书知识库会按相同层级创建节点。
+- 本地 `case_materials/项目/图片.jpg` 会进入飞书目标位置的 `项目/图片.jpg`。
+- 本地存在多级目录时，云端会按相同层级创建文件夹。
 - 已上传且本地文件大小和修改时间未变化的图片会跳过，避免重复上传。
-- 如果 `.env` 配置了 `FEISHU_KNOWLEDGE_SPACE_ID`，系统会使用已有知识库；否则会按 `FEISHU_KNOWLEDGE_SPACE_NAME` 查找同名知识库。
-- 如果同名知识库也不存在，系统会尝试创建。飞书创建知识库空间需要 user token，因此自动创建时需要配置 `FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN`；没有这个 token 时，请先手动创建知识库并配置 `FEISHU_KNOWLEDGE_SPACE_ID`。
+- 系统只使用 `FEISHU_ECHO_DRIVE_FOLDER_TOKEN` 指向的飞书文件夹，不需要 user token。
 
 ### 3. 兼容入口：飞书 Bot 收图片
 
@@ -539,8 +538,8 @@ python3 python/reset_material_state.py
 - `是否可商用 = 否` 时跳过处理
 - `项目` 字段决定归档文件夹，`项目-名字` 写法已废弃
 - 飞书群聊发送 `表单` 会返回表单链接
-- 飞书群聊发送 `回显` 会把 `case_materials/` 同步到飞书知识库
-- 飞书知识库不存在时可自动创建，目录结构和本地素材库保持一致
+- 飞书群聊发送 `回显` 会把 `case_materials/` 同步到飞书文件夹
+- 飞书文件夹模式可直接使用已创建文件夹 token，不需要 user token
 - 飞书群聊普通消息默认静默，@ 机器人或发送明确命令才回复
 - 成品素材直接进入 `case_materials/项目` 或 `case_materials/通用素材库`
 - 飞书 Bot 自动接收图片

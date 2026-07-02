@@ -89,25 +89,29 @@ class FeishuKnowledgeBaseTests(unittest.TestCase):
             self.assertEqual(second["skipped"], 1)
             self.assertEqual(len(client.upload_calls), 1)
 
-    def test_ensure_space_creates_missing_space_with_user_token(self):
+    def test_drive_folder_target_ensures_nested_folders(self):
+        client = kb.FeishuKnowledgeBaseClient(
+            target_type="drive_folder",
+            drive_folder_token="root_folder",
+        )
         responses = [
-            {"code": 0, "data": {"items": [], "has_more": False}},
-            {"code": 0, "data": {"space": {"space_id": "space_new", "name": "YQS Test Space"}}},
+            {"code": 0, "data": {"files": [{"name": "项目A", "type": "folder", "token": "folder_a"}], "has_more": False}},
+            {"code": 0, "data": {"files": [], "has_more": False}},
+            {"code": 0, "data": {"token": "folder_b", "url": "https://example.feishu.cn/drive/folder/folder_b"}},
         ]
 
-        with patch.object(kb, "_env", return_value=""):
-            client = kb.FeishuKnowledgeBaseClient(
-                space_name="YQS Test Space",
-                user_access_token="user-token",
-            )
         with patch.object(client, "request", side_effect=responses) as request:
-            space = client.ensure_space()
+            folder = client.ensure_folder_path("", ("项目A", "二级分类"))
 
-        self.assertEqual(space["space_id"], "space_new")
-        self.assertTrue(space["created"])
-        self.assertEqual(request.call_args_list[0].args[:2], ("GET", "/wiki/v2/spaces"))
-        self.assertEqual(request.call_args_list[1].args[:2], ("POST", "/wiki/v2/spaces"))
-        self.assertTrue(request.call_args_list[1].kwargs["require_user"])
+        self.assertEqual(folder["node_token"], "folder_b")
+        self.assertEqual(folder["nodes"][0]["node_token"], "folder_a")
+        self.assertFalse(folder["nodes"][0]["created"])
+        self.assertTrue(folder["nodes"][1]["created"])
+        self.assertEqual(request.call_args_list[0].args[:2], ("GET", "/drive/v1/files"))
+        self.assertEqual(request.call_args_list[0].kwargs["query"]["folder_token"], "root_folder")
+        self.assertEqual(request.call_args_list[1].kwargs["query"]["folder_token"], "folder_a")
+        self.assertEqual(request.call_args_list[2].args[:2], ("POST", "/drive/v1/files/create_folder"))
+        self.assertEqual(request.call_args_list[2].kwargs["payload"], {"name": "二级分类", "folder_token": "folder_a"})
 
 
 if __name__ == "__main__":

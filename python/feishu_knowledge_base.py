@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync classified YQS material images into a Feishu Wiki knowledge base."""
+"""Sync classified YQS material images into a Feishu Drive folder."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ PROJECT_DIR = PYTHON_DIR.parent
 FEISHU_BASE_URL = "https://open.feishu.cn/open-apis"
 DEFAULT_SPACE_NAME = "YQS PPT 图片素材库"
 DEFAULT_FOLDER_OBJ_TYPE = "docx"
+DRIVE_FOLDER_TARGET = "drive_folder"
+WIKI_TARGET = "wiki"
 CASE_MATERIALS_DIR = PROJECT_DIR / "case_materials"
 STATE_PATH = PROJECT_DIR / "runtime" / "feishu_knowledge_sync_state.json"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
@@ -107,6 +109,8 @@ class FeishuKnowledgeBaseClient:
         space_name: str | None = None,
         space_id: str | None = None,
         root_node_token: str | None = None,
+        drive_folder_token: str | None = None,
+        target_type: str | None = None,
         parent_type: str | None = None,
         folder_obj_type: str | None = None,
         user_access_token: str | None = None,
@@ -115,7 +119,24 @@ class FeishuKnowledgeBaseClient:
         self.space_name = space_name or _env("FEISHU_KNOWLEDGE_SPACE_NAME", DEFAULT_SPACE_NAME)
         self.space_id = space_id or _env("FEISHU_KNOWLEDGE_SPACE_ID")
         self.root_node_token = root_node_token or _env("FEISHU_KNOWLEDGE_ROOT_NODE_TOKEN")
-        self.parent_type = parent_type or _env("FEISHU_KNOWLEDGE_PARENT_TYPE", "wiki")
+        self.drive_folder_token = (
+            drive_folder_token
+            or _env("FEISHU_ECHO_DRIVE_FOLDER_TOKEN")
+            or _env("FEISHU_KNOWLEDGE_DRIVE_FOLDER_TOKEN")
+            or _env("FEISHU_KNOWLEDGE_FOLDER_TOKEN")
+        )
+        configured_target = target_type or _env("FEISHU_ECHO_TARGET_TYPE")
+        if self.drive_folder_token:
+            configured_target = DRIVE_FOLDER_TARGET
+        self.target_type = configured_target or DRIVE_FOLDER_TARGET
+        if self.target_type == DRIVE_FOLDER_TARGET and not self.drive_folder_token:
+            self.drive_folder_token = self.root_node_token
+        default_parent_type = "explorer" if self.target_type == DRIVE_FOLDER_TARGET else "wiki"
+        self.parent_type = (
+            parent_type
+            or _env("FEISHU_ECHO_PARENT_TYPE")
+            or default_parent_type
+        )
         self.folder_obj_type = folder_obj_type or _env("FEISHU_KNOWLEDGE_FOLDER_OBJ_TYPE", DEFAULT_FOLDER_OBJ_TYPE)
         self.user_access_token = (
             user_access_token
@@ -128,8 +149,7 @@ class FeishuKnowledgeBaseClient:
             if self.user_access_token:
                 return self.user_access_token
             raise FeishuKnowledgeBaseError(
-                "飞书创建知识库空间需要 user_access_token。请配置 FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN，"
-                "或先手动创建知识库并配置 FEISHU_KNOWLEDGE_SPACE_ID。"
+                "当前回显已改为飞书文件夹模式。请配置 FEISHU_ECHO_DRIVE_FOLDER_TOKEN。"
             )
         return self.user_access_token or feishu_client.get_tenant_access_token()
 
@@ -166,9 +186,9 @@ class FeishuKnowledgeBaseClient:
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise FeishuKnowledgeBaseError(f"飞书知识库 HTTP {exc.code}: {detail}") from exc
+            raise FeishuKnowledgeBaseError(f"飞书回显 HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
-            raise FeishuKnowledgeBaseError(f"飞书知识库网络请求失败: {exc}") from exc
+            raise FeishuKnowledgeBaseError(f"飞书回显网络请求失败: {exc}") from exc
 
     def multipart_request(
         self,
@@ -217,16 +237,81 @@ class FeishuKnowledgeBaseClient:
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise FeishuKnowledgeBaseError(f"上传飞书知识库文件失败 HTTP {exc.code}: {detail}") from exc
+            raise FeishuKnowledgeBaseError(f"上传飞书文件夹文件失败 HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
-            raise FeishuKnowledgeBaseError(f"上传飞书知识库文件网络失败: {exc}") from exc
+            raise FeishuKnowledgeBaseError(f"上传飞书文件夹文件网络失败: {exc}") from exc
 
     def _data_or_raise(self, response: dict[str, Any]) -> dict[str, Any]:
         code = response.get("code", 0)
         if code != 0:
-            raise FeishuKnowledgeBaseError(f"飞书知识库返回失败: {response}")
+            raise FeishuKnowledgeBaseError(f"飞书接口返回失败: {response}")
         data = response.get("data")
         return data if isinstance(data, dict) else {}
+
+    def list_drive_files(self, folder_token: str) -> list[dict[str, Any]]:
+        files: list[dict[str, Any]] = []
+        page_token = ""
+        while True:
+            data = self._data_or_raise(
+                self.request(
+                    "GET",
+                    "/drive/v1/files",
+                    query={
+                        "page_size": 200,
+                        "page_token": page_token,
+                        "folder_token": folder_token,
+                    },
+                )
+            )
+            page_files = data.get("files", [])
+            if isinstance(page_files, list):
+                files.extend(page_files)
+            if not data.get("has_more"):
+                break
+            page_token = str(data.get("next_page_token") or "")
+            if not page_token:
+                break
+        return files
+
+    def create_drive_folder(self, name: str, parent_folder_token: str) -> dict[str, Any]:
+        data = self._data_or_raise(
+            self.request(
+                "POST",
+                "/drive/v1/files/create_folder",
+                payload={"name": name, "folder_token": parent_folder_token},
+            )
+        )
+        return data
+
+    def ensure_drive_folder_path(self, folder_parts: tuple[str, ...]) -> dict[str, Any]:
+        parent_token = self.drive_folder_token or self.root_node_token
+        if not parent_token:
+            raise FeishuKnowledgeBaseError(
+                "缺少飞书文件夹 token。请配置 FEISHU_ECHO_DRIVE_FOLDER_TOKEN。"
+            )
+
+        ensured: list[dict[str, Any]] = []
+        for title in folder_parts:
+            existing = next(
+                (
+                    item
+                    for item in self.list_drive_files(parent_token)
+                    if str(item.get("name") or "").strip() == title
+                    and str(item.get("type") or "").strip() == "folder"
+                ),
+                None,
+            )
+            if existing:
+                folder = existing
+                created = False
+            else:
+                folder = self.create_drive_folder(title, parent_token)
+                created = True
+            parent_token = str(folder.get("token") or "")
+            if not parent_token:
+                raise FeishuKnowledgeBaseError(f"飞书文件夹缺少 token: {folder}")
+            ensured.append({"title": title, "node_token": parent_token, "created": created})
+        return {"node_token": parent_token, "nodes": ensured}
 
     def list_spaces(self) -> list[dict[str, Any]]:
         spaces: list[dict[str, Any]] = []
@@ -261,6 +346,21 @@ class FeishuKnowledgeBaseClient:
         return space
 
     def ensure_space(self) -> dict[str, Any]:
+        if self.target_type == DRIVE_FOLDER_TARGET:
+            folder_token = self.drive_folder_token or self.root_node_token
+            if not folder_token:
+                raise FeishuKnowledgeBaseError(
+                    "缺少飞书文件夹 token。请配置 FEISHU_ECHO_DRIVE_FOLDER_TOKEN。"
+                )
+            self.drive_folder_token = folder_token
+            return {
+                "space_id": f"drive:{folder_token}",
+                "name": self.space_name,
+                "created": False,
+                "target_type": DRIVE_FOLDER_TARGET,
+                "root_node_token": folder_token,
+            }
+
         if self.space_id:
             return {"space_id": self.space_id, "name": self.space_name, "created": False, "configured": True}
 
@@ -310,6 +410,9 @@ class FeishuKnowledgeBaseClient:
         return node
 
     def ensure_folder_path(self, space_id: str, folder_parts: tuple[str, ...]) -> dict[str, Any]:
+        if self.target_type == DRIVE_FOLDER_TARGET:
+            return self.ensure_drive_folder_path(folder_parts)
+
         parent_node_token = self.root_node_token
         ensured: list[dict[str, Any]] = []
         for title in folder_parts:
@@ -361,12 +464,17 @@ def sync_case_materials_to_knowledge_base(
 ) -> dict[str, Any]:
     root_path = Path(root)
     sync_client = client or FeishuKnowledgeBaseClient()
-    force = force_upload if force_upload is not None else _env("FEISHU_KNOWLEDGE_FORCE_UPLOAD", "false").lower() == "true"
+    force = (
+        force_upload
+        if force_upload is not None
+        else _env("FEISHU_ECHO_FORCE_UPLOAD", "false").lower() == "true"
+    )
     summary: dict[str, Any] = {
         "ok": True,
         "root": str(root_path),
         "space_name": sync_client.space_name,
         "space_id": "",
+        "target_type": getattr(sync_client, "target_type", WIKI_TARGET),
         "created_space": False,
         "total": 0,
         "uploaded": 0,
@@ -427,7 +535,7 @@ def sync_case_materials_to_knowledge_base(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync case_materials images into Feishu Wiki knowledge base.")
+    parser = argparse.ArgumentParser(description="Sync case_materials images into a Feishu Drive folder.")
     parser.add_argument("--root", default=str(CASE_MATERIALS_DIR), help="Local case_materials directory.")
     parser.add_argument("--state", default=str(STATE_PATH), help="Local sync state JSON path.")
     parser.add_argument("--force", action="store_true", help="Upload files even when local fingerprint is unchanged.")
