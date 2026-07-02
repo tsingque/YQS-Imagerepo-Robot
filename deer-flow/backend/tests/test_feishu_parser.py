@@ -54,6 +54,7 @@ def test_feishu_on_message_plain_text():
     event.event.message.chat_id = "chat_1"
     event.event.message.message_id = "msg_1"
     event.event.message.root_id = None
+    event.event.message.chat_type = "p2p"
     event.event.sender.sender_id.open_id = "user_1"
 
     # Plain text content
@@ -109,6 +110,7 @@ def test_feishu_on_message_rich_text():
     event.event.message.chat_id = "chat_1"
     event.event.message.message_id = "msg_1"
     event.event.message.root_id = None
+    event.event.message.chat_type = "group"
     event.event.sender.sender_id.open_id = "user_1"
 
     # Rich text content (topic group / post)
@@ -126,9 +128,10 @@ def test_feishu_on_message_rich_text():
         # Expected text:
         # Paragraph 1, part 1. Paragraph 1, part 2.
         #
-        # @bot  Paragraph 2.
+        # Paragraph 2.
         assert "Paragraph 1, part 1. Paragraph 1, part 2." in parsed_text
-        assert "@bot  Paragraph 2." in parsed_text
+        assert "Paragraph 2." in parsed_text
+        assert "@bot" not in parsed_text
         assert "\n\n" in parsed_text
 
 
@@ -203,6 +206,7 @@ def test_feishu_on_message_extracts_image_and_file_keys():
     event.event.message.chat_id = "chat_1"
     event.event.message.message_id = "msg_1"
     event.event.message.root_id = None
+    event.event.message.chat_type = "p2p"
     event.event.sender.sender_id.open_id = "user_1"
 
     # Rich text with one image and one file element.
@@ -270,6 +274,7 @@ def _make_text_event(
     chat_id: str = "chat_1",
     message_id: str = "msg_1",
     user_id: str = "user_1",
+    chat_type: str = "group",
     root_id: str | None = None,
     parent_id: str | None = None,
     thread_id: str | None = None,
@@ -280,9 +285,101 @@ def _make_text_event(
     event.event.message.root_id = root_id
     event.event.message.parent_id = parent_id
     event.event.message.thread_id = thread_id
+    event.event.message.chat_type = chat_type
     event.event.sender.sender_id.open_id = user_id
     event.event.message.content = json.dumps({"text": text})
     return event
+
+
+def test_feishu_group_plain_text_without_mention_is_ignored():
+    bus = MessageBus()
+    channel = FeishuChannel(bus, {"app_id": "test", "app_secret": "test"})
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_make_inbound = MagicMock()
+        m.setattr(channel, "_make_inbound", mock_make_inbound)
+        channel._on_message(_make_text_event("普通消息", message_id="msg_plain", chat_type="group"))
+
+        mock_make_inbound.assert_not_called()
+
+
+def test_feishu_group_mention_text_is_published_without_mention_prefix():
+    bus = MessageBus()
+    channel = FeishuChannel(bus, {"app_id": "test", "app_secret": "test"})
+
+    event = _make_text_event("", message_id="msg_mention", chat_type="group")
+    event.event.message.content = json.dumps({"content": [[{"tag": "at", "text": "@机器人"}, {"tag": "text", "text": " 状态"}]]})
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_make_inbound = MagicMock()
+        m.setattr(channel, "_make_inbound", mock_make_inbound)
+        channel._on_message(event)
+
+        mock_make_inbound.assert_called_once()
+        assert mock_make_inbound.call_args.kwargs["text"] == "状态"
+
+
+def test_feishu_group_yqs_command_without_mention_is_still_published():
+    bus = MessageBus()
+    channel = FeishuChannel(bus, {"app_id": "test", "app_secret": "test"})
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_make_inbound = MagicMock()
+        m.setattr(channel, "_make_inbound", mock_make_inbound)
+        channel._on_message(_make_text_event("启动", message_id="msg_start", chat_type="group"))
+
+        mock_make_inbound.assert_called_once()
+        assert mock_make_inbound.call_args.kwargs["text"] == "启动"
+
+
+def test_feishu_form_command_replies_with_bitable_form_link(monkeypatch):
+    async def go():
+        bus = MessageBus()
+        channel = FeishuChannel(bus, {"app_id": "test", "app_secret": "test"})
+        channel._reply_card = AsyncMock(return_value="card_1")
+        monkeypatch.setenv("FEISHU_BITABLE_FORM_URL", "https://example.feishu.cn/form")
+
+        handled = await channel._handle_yqs_direct_command("表单", "msg_form", "chat_1")
+
+        assert handled is True
+        channel._reply_card.assert_called_once()
+        assert "图片上传表单" in channel._reply_card.call_args.args[1]
+        assert "https://example.feishu.cn/form" in channel._reply_card.call_args.args[1]
+
+    _run(go())
+
+
+def test_feishu_echo_command_syncs_knowledge_base(monkeypatch):
+    async def go():
+        bus = MessageBus()
+        channel = FeishuChannel(bus, {"app_id": "test", "app_secret": "test"})
+        channel._reply_card = AsyncMock(return_value="card_1")
+        sync = MagicMock(
+            return_value={
+                "ok": True,
+                "root": "/tmp/yqs/case_materials",
+                "space_name": "YQS PPT 图片素材库",
+                "created_space": True,
+                "total": 3,
+                "uploaded": 2,
+                "skipped": 1,
+                "created_folders": 2,
+                "errors": [],
+            }
+        )
+        monkeypatch.setattr(channel, "_sync_yqs_knowledge_base", sync)
+
+        handled = await channel._handle_yqs_direct_command("回显", "msg_echo", "chat_1")
+
+        assert handled is True
+        assert sync.call_count == 1
+        card = channel._reply_card.call_args.args[1]
+        assert "飞书知识库回显完成" in card
+        assert "已创建知识库：YQS PPT 图片素材库" in card
+        assert "已上传：2 张" in card
+        assert "已跳过：1 张" in card
+
+    _run(go())
 
 
 def test_feishu_plain_reply_consumes_pending_clarification_topic():
@@ -324,15 +421,11 @@ def test_feishu_pending_clarification_is_consumed_once():
         channel._on_message(_make_text_event("next", message_id="msg_second"))
 
         first_inbound = created[0]
-        second_inbound = created[1]
         first_metadata = mock_make_inbound.call_args_list[0].kwargs["metadata"]
-        second_metadata = mock_make_inbound.call_args_list[1].kwargs["metadata"]
         assert first_inbound.topic_id == "om_original"
-        assert second_inbound.topic_id == "msg_second"
         assert first_metadata["topic_id"] == "om_original"
         assert first_metadata[RESOLVED_FROM_PENDING_CLARIFICATION_METADATA_KEY] is True
-        assert second_metadata["topic_id"] == "msg_second"
-        assert second_metadata[RESOLVED_FROM_PENDING_CLARIFICATION_METADATA_KEY] is False
+        assert len(created) == 1
 
 
 def test_feishu_expired_pending_clarification_is_ignored(monkeypatch):
@@ -459,6 +552,7 @@ def test_feishu_recognizes_all_known_slash_commands(command):
     event.event.message.chat_id = "chat_1"
     event.event.message.message_id = "msg_1"
     event.event.message.root_id = None
+    event.event.message.chat_type = "p2p"
     event.event.sender.sender_id.open_id = "user_1"
     event.event.message.content = json.dumps({"text": command})
 
@@ -490,6 +584,7 @@ def test_feishu_treats_unknown_slash_text_as_chat(text):
     event.event.message.chat_id = "chat_1"
     event.event.message.message_id = "msg_1"
     event.event.message.root_id = None
+    event.event.message.chat_type = "p2p"
     event.event.sender.sender_id.open_id = "user_1"
     event.event.message.content = json.dumps({"text": text})
 

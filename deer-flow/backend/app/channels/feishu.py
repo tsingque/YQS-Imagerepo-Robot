@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -31,10 +32,74 @@ from deerflow.sandbox.sandbox_provider import get_sandbox_provider
 logger = logging.getLogger(__name__)
 PENDING_CLARIFICATION_TTL_SECONDS = 30 * 60
 YQS_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+YQS_FORM_COMMANDS = {"表单", "图片表单", "上传表单", "素材表单"}
+YQS_ECHO_COMMANDS = {"回显", "图片回显", "知识库回显", "同步知识库"}
+YQS_UNMENTIONED_COMMANDS = {
+    "启动",
+    "启动素材处理",
+    "状态",
+    "素材状态",
+    "处理状态",
+    *YQS_FORM_COMMANDS,
+    *YQS_ECHO_COMMANDS,
+}
 
 
 def _is_feishu_command(text: str) -> bool:
     return is_known_channel_command(text)
+
+
+def _yqs_project_root() -> Path:
+    configured = os.getenv("YQS_PROJECT_ROOT") or os.getenv("DEER_FLOW_PROJECT_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[4]
+
+
+def _normalize_yqs_text(text: str) -> str:
+    cleaned = text.strip()
+    previous = None
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = re.sub(r"^\s*@\S+\s*", "", cleaned).strip()
+    return "".join(cleaned.split())
+
+
+def _strip_leading_at_mentions(text: str) -> str:
+    cleaned = text.strip()
+    previous = None
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = re.sub(r"^\s*@\S+\s*", "", cleaned).strip()
+    return cleaned
+
+
+def _text_has_at_mention(text: str) -> bool:
+    return bool(re.search(r"(^|\s)@\S+", text))
+
+
+def _build_bitable_form_url() -> str:
+    explicit = os.getenv("FEISHU_BITABLE_FORM_URL", "").strip()
+    if explicit:
+        return explicit
+
+    app_token = os.getenv("FEISHU_BITABLE_APP_TOKEN", "").strip()
+    table_id = os.getenv("FEISHU_BITABLE_TABLE_ID", "").strip()
+    view_id = (
+        os.getenv("FEISHU_BITABLE_FORM_VIEW_ID", "").strip()
+        or os.getenv("FEISHU_BITABLE_VIEW_ID", "").strip()
+    )
+    if not app_token:
+        return ""
+
+    web_base = os.getenv("FEISHU_WEB_BASE_URL", "https://www.feishu.cn").rstrip("/")
+    query: dict[str, str] = {}
+    if table_id:
+        query["table"] = table_id
+    if view_id:
+        query["view"] = view_id
+    suffix = "?" + "&".join(f"{key}={value}" for key, value in query.items()) if query else ""
+    return f"{web_base}/base/{app_token}{suffix}"
 
 
 class FeishuChannel(Channel):
@@ -903,6 +968,144 @@ class FeishuChannel(Channel):
         await self._reply_card(message_id, "Feishu connected to DeerFlow.")
         return True
 
+    def _parse_message_content(self, content: dict[str, Any]) -> tuple[str, list[dict[str, str]], bool]:
+        files_list: list[dict[str, str]] = []
+        mentioned = False
+
+        if "text" in content:
+            text = str(content["text"] or "")
+            mentioned = _text_has_at_mention(text) or bool(content.get("mentions"))
+            return text.strip(), files_list, mentioned
+
+        if "file_key" in content:
+            file_key = content.get("file_key")
+            if isinstance(file_key, str) and file_key:
+                files_list.append({"file_key": file_key})
+                return "[file]", files_list, mentioned
+            return "", files_list, mentioned
+
+        if "image_key" in content:
+            image_key = content.get("image_key")
+            if isinstance(image_key, str) and image_key:
+                files_list.append({"image_key": image_key})
+                return "[image]", files_list, mentioned
+            return "", files_list, mentioned
+
+        if "content" in content and isinstance(content["content"], list):
+            text_paragraphs: list[str] = []
+            for paragraph in content["content"]:
+                if not isinstance(paragraph, list):
+                    continue
+                paragraph_text_parts: list[str] = []
+                for element in paragraph:
+                    if not isinstance(element, dict):
+                        continue
+                    tag = element.get("tag")
+                    if tag == "at":
+                        mentioned = True
+                        continue
+                    if tag == "text":
+                        text_value = element.get("text", "")
+                        if text_value:
+                            paragraph_text_parts.append(str(text_value))
+                    elif tag == "img":
+                        image_key = element.get("image_key")
+                        if isinstance(image_key, str) and image_key:
+                            files_list.append({"image_key": image_key})
+                            paragraph_text_parts.append("[image]")
+                    elif tag in ("file", "media"):
+                        file_key = element.get("file_key")
+                        if isinstance(file_key, str) and file_key:
+                            files_list.append({"file_key": file_key})
+                            paragraph_text_parts.append("[file]")
+                if paragraph_text_parts:
+                    text_paragraphs.append(" ".join(paragraph_text_parts))
+            return "\n\n".join(text_paragraphs).strip(), files_list, mentioned
+
+        return "", files_list, mentioned
+
+    @staticmethod
+    def _is_yqs_direct_command(text: str) -> bool:
+        normalized = _normalize_yqs_text(text)
+        return normalized in YQS_FORM_COMMANDS or normalized in YQS_ECHO_COMMANDS
+
+    @staticmethod
+    def _is_yqs_unmentioned_command(text: str) -> bool:
+        return _normalize_yqs_text(text) in YQS_UNMENTIONED_COMMANDS
+
+    async def _handle_yqs_direct_command(self, text: str, message_id: str, chat_id: str) -> bool:
+        del chat_id
+        normalized = _normalize_yqs_text(text)
+        if normalized in YQS_FORM_COMMANDS:
+            await self._reply_yqs_form_link(message_id)
+            return True
+        if normalized in YQS_ECHO_COMMANDS:
+            await self._reply_yqs_knowledge_sync(message_id)
+            return True
+        return False
+
+    async def _reply_yqs_form_link(self, message_id: str) -> None:
+        url = _build_bitable_form_url()
+        if not url:
+            await self._reply_card(
+                message_id,
+                "**图片上传表单暂未配置**\n\n请在 `.env` 中配置 `FEISHU_BITABLE_FORM_URL`，或配置 `FEISHU_BITABLE_APP_TOKEN` / `FEISHU_BITABLE_TABLE_ID` / `FEISHU_BITABLE_FORM_VIEW_ID`。",
+            )
+            return
+        await self._reply_card(
+            message_id,
+            "\n".join(
+                [
+                    "**图片上传表单**",
+                    "",
+                    f"[打开飞书多维表格表单]({url})",
+                    "",
+                    "填写字段：项目、名字、描述、文件、来源、来源二级分类、是否可商用。",
+                ]
+            ),
+        )
+
+    async def _reply_yqs_knowledge_sync(self, message_id: str) -> None:
+        try:
+            summary = await asyncio.to_thread(self._sync_yqs_knowledge_base)
+        except Exception as exc:
+            logger.exception("[Feishu] failed to sync YQS knowledge base")
+            await self._reply_card(message_id, f"**飞书知识库回显失败**\n\n{exc}")
+            return
+
+        ok = bool(summary.get("ok"))
+        title = "**飞书知识库回显完成**" if ok else "**飞书知识库回显部分失败**"
+        space_line = "已创建知识库" if summary.get("created_space") else "知识库"
+        lines = [
+            title,
+            "",
+            f"{space_line}：{summary.get('space_name') or summary.get('space_id') or '未命名'}",
+            f"本地目录：`{summary.get('root', '')}`",
+            f"发现图片：{summary.get('total', 0)} 张",
+            f"已上传：{summary.get('uploaded', 0)} 张",
+            f"已跳过：{summary.get('skipped', 0)} 张",
+            f"已创建目录：{summary.get('created_folders', 0)} 个",
+        ]
+        if summary.get("failed"):
+            lines.append(f"失败：{summary.get('failed', 0)} 张")
+        errors = summary.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0] if isinstance(errors[0], dict) else {"error": str(errors[0])}
+            path = first.get("path", "")
+            error = first.get("error", "")
+            lines.extend(["", f"首个错误：`{path}` {error}".strip()])
+        await self._reply_card(message_id, "\n".join(lines))
+
+    @staticmethod
+    def _sync_yqs_knowledge_base() -> dict[str, Any]:
+        project_root = _yqs_project_root()
+        python_dir = project_root / "python"
+        if str(python_dir) not in sys.path:
+            sys.path.insert(0, str(python_dir))
+        from feishu_knowledge_base import sync_case_materials_to_knowledge_base
+
+        return sync_case_materials_to_knowledge_base(root=project_root / "case_materials")
+
     def _on_message(self, event) -> None:
         """Called by lark-oapi when a message is received (runs in lark thread)."""
         try:
@@ -919,61 +1122,10 @@ class FeishuChannel(Channel):
 
             # Parse message content
             content = json.loads(message.content)
-
-            # files_list store the any-file-key in feishu messages, which can be used to download the file content later
-            # In Feishu channel, image_keys are independent of file_keys.
-            # The file_key includes files, videos, and audio, but does not include stickers.
-            files_list = []
-
-            if "text" in content:
-                # Handle plain text messages
-                text = content["text"]
-            elif "file_key" in content:
-                file_key = content.get("file_key")
-                if isinstance(file_key, str) and file_key:
-                    files_list.append({"file_key": file_key})
-                    text = "[file]"
-                else:
-                    text = ""
-            elif "image_key" in content:
-                image_key = content.get("image_key")
-                if isinstance(image_key, str) and image_key:
-                    files_list.append({"image_key": image_key})
-                    text = "[image]"
-                else:
-                    text = ""
-            elif "content" in content and isinstance(content["content"], list):
-                # Handle rich-text messages with a top-level "content" list (e.g., topic groups/posts)
-                text_paragraphs: list[str] = []
-                for paragraph in content["content"]:
-                    if isinstance(paragraph, list):
-                        paragraph_text_parts: list[str] = []
-                        for element in paragraph:
-                            if isinstance(element, dict):
-                                # Include both normal text and @ mentions
-                                if element.get("tag") in ("text", "at"):
-                                    text_value = element.get("text", "")
-                                    if text_value:
-                                        paragraph_text_parts.append(text_value)
-                                elif element.get("tag") == "img":
-                                    image_key = element.get("image_key")
-                                    if isinstance(image_key, str) and image_key:
-                                        files_list.append({"image_key": image_key})
-                                        paragraph_text_parts.append("[image]")
-                                elif element.get("tag") in ("file", "media"):
-                                    file_key = element.get("file_key")
-                                    if isinstance(file_key, str) and file_key:
-                                        files_list.append({"file_key": file_key})
-                                        paragraph_text_parts.append("[file]")
-                        if paragraph_text_parts:
-                            # Join text segments within a paragraph with spaces to avoid "helloworld"
-                            text_paragraphs.append(" ".join(paragraph_text_parts))
-
-                # Join paragraphs with blank lines to preserve paragraph boundaries
-                text = "\n\n".join(text_paragraphs)
-            else:
-                text = ""
-            text = text.strip()
+            text, files_list, mentioned = self._parse_message_content(content)
+            command_text = _normalize_yqs_text(text)
+            if mentioned:
+                text = _strip_leading_at_mentions(text)
 
             logger.info(
                 "[Feishu] parsed message: chat_id=%s, msg_id=%s, root_id=%s, parent_id=%s, thread_id=%s, chat_type=%s, sender=%s, text_len=%d",
@@ -989,6 +1141,30 @@ class FeishuChannel(Channel):
 
             if not (text or files_list):
                 logger.info("[Feishu] empty text, ignoring message")
+                return
+
+            if self._is_yqs_direct_command(command_text):
+                if self._main_loop and self._main_loop.is_running():
+                    fut = asyncio.run_coroutine_threadsafe(
+                        self._handle_yqs_direct_command(command_text, msg_id, chat_id),
+                        self._main_loop,
+                    )
+                    fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "yqs_direct_command", mid))
+                else:
+                    logger.warning("[Feishu] main loop not running, cannot handle YQS direct command")
+                return
+
+            has_pending_clarification = bool(self._pending_clarifications.get(self._pending_key(chat_id, sender_id)))
+            is_thread_reply = bool(root_id or parent_id or feishu_thread_id)
+            if (
+                chat_type != "p2p"
+                and not mentioned
+                and not self._is_yqs_unmentioned_command(command_text)
+                and not _is_feishu_command(text)
+                and not is_thread_reply
+                and not has_pending_clarification
+            ):
+                logger.info("[Feishu] ignoring unmentioned group message: chat_id=%s, msg_id=%s", chat_id, msg_id)
                 return
 
             connect_code = self._pending_connect_code(text)

@@ -35,26 +35,20 @@ class DashboardAuthTests(unittest.TestCase):
 
 
 class RecognitionWorkerCleanupTests(unittest.TestCase):
-    def test_project_prefixed_bitable_name_targets_project_folder(self):
-        self.assertEqual(
-            recognition_worker.split_project_and_name("客户A-Minduck图标"),
-            ("客户A", "Minduck图标"),
-        )
-        self.assertEqual(
-            recognition_worker.split_project_and_name("Minduck图标"),
-            ("", "Minduck图标"),
-        )
+    def test_bitable_project_field_targets_project_folder(self):
+        self.assertEqual(recognition_worker.material_name_from_metadata({"名字": "客户A-Minduck图标"}), "客户A-Minduck图标")
+        self.assertEqual(recognition_worker.material_name_from_metadata({"名字": "Minduck图标"}), "Minduck图标")
 
     def test_target_material_folder_uses_project_or_general_library(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with patch.object(recognition_worker, "CASE_MATERIALS_DIR", root / "case_materials"):
                 self.assertEqual(
-                    recognition_worker.target_material_folder({"名字": "项目A-图标"}),
+                    recognition_worker.target_material_folder({"项目": "项目A", "名字": "图标"}),
                     root / "case_materials" / "项目A",
                 )
                 self.assertEqual(
-                    recognition_worker.target_material_folder({"名字": "图标"}),
+                    recognition_worker.target_material_folder({"名字": "项目A-图标"}),
                     root / "case_materials" / "通用素材库",
                 )
 

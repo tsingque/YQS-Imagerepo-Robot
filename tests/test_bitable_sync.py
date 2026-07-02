@@ -20,8 +20,10 @@ class BitableSyncTests(unittest.TestCase):
             "fields": {
                 "名字": [{"text": "minduck图标"}],
                 "描述": "2026-minduck图标",
+                "项目": "Minduck",
                 "文件": [{"file_token": "tok1", "name": "logo.png", "size": 100}],
                 "来源": "下载",
+                "来源二级分类": "计划",
                 "是否可商用": "有",
             },
         }
@@ -31,7 +33,9 @@ class BitableSyncTests(unittest.TestCase):
         self.assertEqual(parsed.record_id, "rec1")
         self.assertEqual(parsed.name, "minduck图标")
         self.assertEqual(parsed.description, "2026-minduck图标")
+        self.assertEqual(parsed.project, "Minduck")
         self.assertEqual(parsed.source, "下载")
+        self.assertEqual(parsed.source_subcategory, "计划")
         self.assertEqual(parsed.usable, "有")
         self.assertEqual(parsed.attachments[0]["file_token"], "tok1")
 
@@ -48,8 +52,10 @@ class BitableSyncTests(unittest.TestCase):
                     "fields": {
                         "名字": "可用图",
                         "描述": "用于产品页",
+                        "项目": "项目A",
                         "文件": [{"file_token": "tok-y", "name": "demo.png"}],
                         "来源": "截图",
+                        "来源二级分类": "计划",
                         "是否可商用": "有",
                     },
                 },
@@ -84,7 +90,28 @@ class BitableSyncTests(unittest.TestCase):
             file_map = json.loads((runtime_dir / "bitable_file_map.json").read_text(encoding="utf-8"))
             self.assertEqual(file_map["rec-y_demo.png"]["record_id"], "rec-y")
             self.assertEqual(file_map["rec-y_demo.png"]["名字"], "可用图")
+            self.assertEqual(file_map["rec-y_demo.png"]["项目"], "项目A")
+            self.assertEqual(file_map["rec-y_demo.png"]["来源二级分类"], "计划")
             self.assertEqual(file_map["rec-y_demo.png"]["是否可商用"], "有")
+
+    def test_parse_record_defaults_source_subcategory_to_plan(self):
+        record = {
+            "record_id": "rec-plan",
+            "fields": {
+                "名字": "素材名",
+                "描述": "素材描述",
+                "项目": "项目A",
+                "文件": [{"file_token": "tok", "name": "demo.png"}],
+                "来源": "渲染",
+                "是否可商用": "是",
+            },
+        }
+
+        parsed = bitable_sync.parse_record(record, bitable_sync.BitableFieldConfig())
+
+        self.assertEqual(parsed.project, "项目A")
+        self.assertEqual(parsed.source_subcategory, "计划")
+        self.assertTrue(bitable_sync.is_usable(parsed))
 
     def test_parse_record_prefers_commercial_field_when_legacy_env_exists(self):
         record = {

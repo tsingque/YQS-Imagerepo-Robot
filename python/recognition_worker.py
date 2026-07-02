@@ -184,8 +184,12 @@ def split_project_and_name(raw_name: str) -> tuple[str, str]:
     return "", name
 
 
+def material_name_from_metadata(metadata: dict[str, str]) -> str:
+    return str(metadata.get("名字") or "").strip()
+
+
 def target_material_folder(metadata: dict[str, str]) -> Path:
-    project, _ = split_project_and_name(metadata.get("名字", ""))
+    project = str(metadata.get("项目") or "").strip()
     folder = safe_folder_name(project) if project else GENERAL_MATERIALS_FOLDER
     return CASE_MATERIALS_DIR / folder
 
@@ -262,12 +266,10 @@ def build_metadata(image_path: Path) -> dict[str, str]:
         "file_size": file_size_label(image_path),
     }
     bitable_metadata = bitable_sync.load_metadata_for_image(image_path.name)
-    for key in ["record_id", "名字", "描述", "来源", "是否可商用", "是否可用", "原始附件名", "本地原图路径"]:
+    for key in ["record_id", "名字", "描述", "项目", "来源", "来源二级分类", "是否可商用", "是否可用", "原始附件名", "本地原图路径"]:
         if bitable_metadata.get(key):
             metadata[key] = str(bitable_metadata[key])
-    project, material_name = split_project_and_name(metadata.get("名字", ""))
-    if project:
-        metadata["项目"] = project
+    material_name = material_name_from_metadata(metadata)
     if material_name:
         metadata["素材名"] = material_name
     return metadata
@@ -325,6 +327,8 @@ def run(limit: int = 0, dry_run: bool = False) -> dict:
             result = recognize_with_provider(image_path, rules_prompt, metadata)
             if metadata.get("来源"):
                 result["bitable_source"] = metadata["来源"]
+            if metadata.get("来源二级分类"):
+                result["bitable_source_subcategory"] = metadata["来源二级分类"]
             if metadata.get("是否可商用") or metadata.get("是否可用"):
                 result["bitable_commercial"] = metadata.get("是否可商用") or metadata.get("是否可用")
             usage = record_token_usage(image_path.name, result.pop("_token_usage", None), current_provider())

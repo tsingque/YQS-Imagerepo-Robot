@@ -33,14 +33,17 @@ IMAGE_MAGIC_PREFIXES = (
     b"BM",
     b"RIFF",  # webp starts with RIFF....WEBP
 )
+DEFAULT_SOURCE_SUBCATEGORY = "计划"
 
 
 @dataclass
 class BitableFieldConfig:
     name: str = "名字"
     description: str = "描述"
+    project: str = "项目"
     file: str = "文件"
     source: str = "来源"
+    source_subcategory: str = "来源二级分类"
     usable: str = "是否可商用"
 
 
@@ -49,7 +52,9 @@ class ParsedRecord:
     record_id: str
     name: str
     description: str
+    project: str
     source: str
+    source_subcategory: str
     usable: str
     attachments: list[dict[str, Any]]
 
@@ -63,8 +68,10 @@ def field_config_from_env() -> BitableFieldConfig:
     return BitableFieldConfig(
         name=os.getenv("FEISHU_BITABLE_FIELD_NAME", "名字"),
         description=os.getenv("FEISHU_BITABLE_FIELD_DESCRIPTION", "描述"),
+        project=os.getenv("FEISHU_BITABLE_FIELD_PROJECT", "项目"),
         file=os.getenv("FEISHU_BITABLE_FIELD_FILE", "文件"),
         source=os.getenv("FEISHU_BITABLE_FIELD_SOURCE", "来源"),
+        source_subcategory=os.getenv("FEISHU_BITABLE_FIELD_SOURCE_SUBCATEGORY", "来源二级分类"),
         usable=os.getenv("FEISHU_BITABLE_FIELD_COMMERCIAL", "是否可商用"),
     )
 
@@ -121,7 +128,9 @@ def parse_record(record: dict[str, Any], config: BitableFieldConfig) -> ParsedRe
         record_id=str(record.get("record_id") or record.get("id") or "").strip(),
         name=text_value(fields.get(config.name)),
         description=text_value(fields.get(config.description)),
+        project=text_value(fields.get(config.project)),
         source=text_value(fields.get(config.source)),
+        source_subcategory=text_value(fields.get(config.source_subcategory)) or DEFAULT_SOURCE_SUBCATEGORY,
         usable=text_value(commercial_value).lower(),
         attachments=attachment_values(fields.get(config.file)),
     )
@@ -193,7 +202,9 @@ def metadata_for(record: ParsedRecord, attachment: dict[str, Any], local_path: P
         "record_id": record.record_id,
         "名字": record.name,
         "描述": record.description,
+        "项目": record.project,
         "来源": record.source,
+        "来源二级分类": record.source_subcategory,
         "是否可商用": commercial_label(record),
         "是否可用": record.usable,
         "原始附件名": str(attachment.get("name") or attachment.get("filename") or ""),

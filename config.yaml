@@ -43,6 +43,9 @@ tools:
   - name: compress_raw_images
     group: yqs_material
     use: python.yqs_deerflow_tools:compress_raw_images_tool
+  - name: sync_bitable_to_raw
+    group: yqs_material
+    use: python.yqs_deerflow_tools:sync_bitable_to_raw_tool
   - name: run_glm_recognition
     group: yqs_material
     use: python.yqs_deerflow_tools:run_glm_recognition_tool

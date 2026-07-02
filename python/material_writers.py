@@ -92,10 +92,17 @@ def normalize_result(result: dict, fallback_resolution: str) -> dict[str, str]:
     category = result.get("category") or result.get("material_type") or result.get("suggested_folder") or "其他_待判断"
     suggested_folder = result.get("suggested_folder") or category
     source = sanitize_cell(result.get("bitable_source") or result.get("来源") or result.get("source", ""))
+    source_subcategory = sanitize_cell(
+        result.get("bitable_source_subcategory") or result.get("来源二级分类") or result.get("source_subcategory", "")
+    )
     commercial = sanitize_cell(result.get("bitable_commercial") or result.get("是否可商用") or result.get("commercial", ""))
     source_copyright = result.get("source_copyright")
-    if source or commercial:
-        source_copyright = f"{source or '来源未填'}/{commercial or '无'}"
+    if source or source_subcategory or commercial:
+        parts = [source or "来源未填"]
+        if source_subcategory:
+            parts.append(source_subcategory)
+        parts.append(commercial or "无")
+        source_copyright = "/".join(parts)
 
     return {
         "分类": sanitize_cell(suggested_folder),
