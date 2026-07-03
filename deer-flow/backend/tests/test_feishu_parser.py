@@ -359,11 +359,15 @@ def test_feishu_echo_command_syncs_knowledge_base(monkeypatch):
                 "ok": True,
                 "root": "/tmp/yqs/case_materials",
                 "space_name": "YQS PPT 图片素材库",
+                "space_url": "https://example.feishu.cn/drive/folder/folder_1",
                 "created_space": True,
                 "total": 3,
                 "uploaded": 2,
                 "skipped": 1,
                 "created_folders": 2,
+                "reader_granted": True,
+                "folder_permission_granted": True,
+                "folder_permission_role": "full_access",
                 "errors": [],
             }
         )
@@ -373,9 +377,12 @@ def test_feishu_echo_command_syncs_knowledge_base(monkeypatch):
 
         assert handled is True
         assert sync.call_count == 1
+        assert sync.call_args.args == ("",)
         card = channel._reply_card.call_args.args[1]
         assert "飞书文件夹回显完成" in card
         assert "飞书文件夹：YQS PPT 图片素材库" in card
+        assert "[打开文件夹](https://example.feishu.cn/drive/folder/folder_1)" in card
+        assert "云盘权限：已给本次发起人开通可管理权限（可修改/删除）" in card
         assert "已上传：2 张" in card
         assert "已跳过：1 张" in card
 

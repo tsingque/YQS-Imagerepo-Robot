@@ -54,7 +54,7 @@ FIELDS = [
             ("FEISHU_RECEIVE_ID_TYPE", "飞书通知 receive_id 类型", "chat_id", "select", "chat_id,open_id,user_id,email"),
             ("FEISHU_RECEIVE_ID", "飞书通知 receive_id，可留空", "", "text", ""),
             ("FEISHU_NOTIFY_ON_RECOGNITION", "识图完成后发送飞书通知", "true", "select", "true,false"),
-            ("FEISHU_ECHO_DRIVE_FOLDER_TOKEN", "飞书云空间文件夹 token，回显同步使用", "", "text", ""),
+            ("FEISHU_ECHO_DRIVE_FOLDER_TOKEN", "飞书云空间文件夹 token；留空自动创建", "", "text", ""),
             ("FEISHU_ECHO_PARENT_TYPE", "飞书文件上传 parent_type", "explorer", "text", ""),
             ("FEISHU_ECHO_FORCE_UPLOAD", "回显时强制重传图片", "false", "select", "true,false"),
             ("FEISHU_BITABLE_APP_TOKEN", "多维表格 app_token", "", "password", ""),

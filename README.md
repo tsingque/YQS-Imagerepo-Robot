@@ -210,16 +210,12 @@ docx:document
 
 ### 飞书文件夹回显配置
 
-群聊发送 `回显` 会把本地成品素材同步到飞书云空间文件夹。你创建的文件夹链接：
+群聊发送 `回显` 会把本地成品素材同步到飞书文件夹。默认不需要手动创建文件夹，也不需要填写文件夹 token；首次回显时系统会用应用身份自动创建 `YQS PPT 图片素材库`，并把文件夹 token 和链接保存到 `runtime/feishu_echo_drive_folder.json`。
+
+如确实要同步到一个已有且应用身份有权限的文件夹，可以手动填写：
 
 ```text
-https://wu35s592xy.feishu.cn/drive/folder/QDMwfuA16lSavSdosZ2cUKGNnG7
-```
-
-对应配置如下：
-
-```text
-FEISHU_ECHO_DRIVE_FOLDER_TOKEN=QDMwfuA16lSavSdosZ2cUKGNnG7
+FEISHU_ECHO_DRIVE_FOLDER_TOKEN=
 FEISHU_ECHO_PARENT_TYPE=explorer
 FEISHU_ECHO_FORCE_UPLOAD=false
 ```
@@ -341,7 +337,7 @@ case_materials/
 - 本地 `case_materials/项目/图片.jpg` 会进入飞书目标位置的 `项目/图片.jpg`。
 - 本地存在多级目录时，云端会按相同层级创建文件夹。
 - 已上传且本地文件大小和修改时间未变化的图片会跳过，避免重复上传。
-- 系统只使用 `FEISHU_ECHO_DRIVE_FOLDER_TOKEN` 指向的飞书文件夹，不需要 user token。
+- `FEISHU_ECHO_DRIVE_FOLDER_TOKEN` 留空时，系统会自动创建应用自有文件夹；填写时，会使用该 token 指向的已有文件夹。
 
 ### 3. 兼容入口：飞书 Bot 收图片
 
@@ -539,7 +535,7 @@ python3 python/reset_material_state.py
 - `项目` 字段决定归档文件夹，`项目-名字` 写法已废弃
 - 飞书群聊发送 `表单` 会返回表单链接
 - 飞书群聊发送 `回显` 会把 `case_materials/` 同步到飞书文件夹
-- 飞书文件夹模式可直接使用已创建文件夹 token，不需要 user token
+- 飞书文件夹模式默认自动创建应用自有文件夹，也可配置已有文件夹 token
 - 飞书群聊普通消息默认静默，@ 机器人或发送明确命令才回复
 - 成品素材直接进入 `case_materials/项目` 或 `case_materials/通用素材库`
 - 飞书 Bot 自动接收图片

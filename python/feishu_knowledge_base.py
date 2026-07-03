@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import mimetypes
 import os
@@ -26,15 +25,29 @@ PROJECT_DIR = PYTHON_DIR.parent
 FEISHU_BASE_URL = "https://open.feishu.cn/open-apis"
 DEFAULT_SPACE_NAME = "YQS PPT 图片素材库"
 DEFAULT_FOLDER_OBJ_TYPE = "docx"
+DRIVE_FOLDER_REQUESTER_PERMISSION = "full_access"
 DRIVE_FOLDER_TARGET = "drive_folder"
 WIKI_TARGET = "wiki"
 CASE_MATERIALS_DIR = PROJECT_DIR / "case_materials"
 STATE_PATH = PROJECT_DIR / "runtime" / "feishu_knowledge_sync_state.json"
+ECHO_FOLDER_STATE_PATH = PROJECT_DIR / "runtime" / "feishu_echo_drive_folder.json"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 
 
 class FeishuKnowledgeBaseError(RuntimeError):
     pass
+
+
+def _format_feishu_http_error(action: str, status: int, detail: str) -> str:
+    if status == 403 and ("1061004" in detail or "forbidden" in detail.lower()):
+        return (
+            f"{action} HTTP 403: 飞书云盘文件夹权限不足。"
+            "当前 `FEISHU_ECHO_DRIVE_FOLDER_TOKEN` 指向云盘文件夹，但应用身份没有该文件夹访问权限；"
+            "云盘文件夹的协作者里通常搜不到机器人。"
+            "请改用用户授权访问该文件夹，或改用应用/机器人自己创建并拥有的文件夹。"
+            f" 原始响应: {detail}"
+        )
+    return f"{action} HTTP {status}: {detail}"
 
 
 @dataclass(frozen=True)
@@ -53,6 +66,25 @@ def _env(name: str, default: str = "") -> str:
 def _as_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     items = data.get("items", [])
     return items if isinstance(items, list) else []
+
+
+def load_echo_drive_folder_state(path: Path | str = ECHO_FOLDER_STATE_PATH) -> dict[str, Any]:
+    state_path = Path(path)
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def resolve_echo_drive_folder_token(
+    *,
+    drive_folder_token: str = "",
+    state_path: Path | str = ECHO_FOLDER_STATE_PATH,
+) -> tuple[str, dict[str, Any]]:
+    state = load_echo_drive_folder_state(state_path)
+    token = drive_folder_token.strip() or str(state.get("drive_folder_token") or "").strip()
+    return token, state
 
 
 def iter_case_material_images(root: Path | str = CASE_MATERIALS_DIR) -> list[LocalMaterialImage]:
@@ -119,12 +151,21 @@ class FeishuKnowledgeBaseClient:
         self.space_name = space_name or _env("FEISHU_KNOWLEDGE_SPACE_NAME", DEFAULT_SPACE_NAME)
         self.space_id = space_id or _env("FEISHU_KNOWLEDGE_SPACE_ID")
         self.root_node_token = root_node_token or _env("FEISHU_KNOWLEDGE_ROOT_NODE_TOKEN")
-        self.drive_folder_token = (
+        configured_drive_folder_token = (
             drive_folder_token
-            or _env("FEISHU_ECHO_DRIVE_FOLDER_TOKEN")
-            or _env("FEISHU_KNOWLEDGE_DRIVE_FOLDER_TOKEN")
-            or _env("FEISHU_KNOWLEDGE_FOLDER_TOKEN")
+            if drive_folder_token is not None
+            else (
+                _env("FEISHU_ECHO_DRIVE_FOLDER_TOKEN")
+                or _env("FEISHU_KNOWLEDGE_DRIVE_FOLDER_TOKEN")
+                or _env("FEISHU_KNOWLEDGE_FOLDER_TOKEN")
+            )
         )
+        self.echo_folder_state_path = ECHO_FOLDER_STATE_PATH
+        stored_echo_folder_state = self._load_echo_drive_folder_state()
+        self.drive_folder_token = configured_drive_folder_token or str(
+            stored_echo_folder_state.get("drive_folder_token") or ""
+        ).strip()
+        self.drive_folder_url = "" if configured_drive_folder_token else str(stored_echo_folder_state.get("url") or "").strip()
         configured_target = target_type or _env("FEISHU_ECHO_TARGET_TYPE")
         if self.drive_folder_token:
             configured_target = DRIVE_FOLDER_TARGET
@@ -143,6 +184,54 @@ class FeishuKnowledgeBaseClient:
             or _env("FEISHU_KNOWLEDGE_USER_ACCESS_TOKEN")
             or _env("FEISHU_USER_ACCESS_TOKEN")
         )
+
+    def _load_echo_drive_folder_state(self) -> dict[str, Any]:
+        return load_echo_drive_folder_state(self.echo_folder_state_path)
+
+    def _load_echo_drive_folder_token(self) -> str:
+        return str(self._load_echo_drive_folder_state().get("drive_folder_token") or "").strip()
+
+    def _load_echo_drive_folder_url(self) -> str:
+        return str(self._load_echo_drive_folder_state().get("url") or "").strip()
+
+    def _save_echo_drive_folder_state(self, folder: dict[str, Any]) -> None:
+        token = str(folder.get("token") or "").strip()
+        if not token:
+            return
+        existing_state = self._load_echo_drive_folder_state()
+        self.echo_folder_state_path.parent.mkdir(parents=True, exist_ok=True)
+        state = {
+            "version": 1,
+            "name": self.space_name,
+            "drive_folder_token": token,
+            "url": str(folder.get("url") or ""),
+            "created_at": int(time.time()),
+            "reader_open_ids": existing_state.get("reader_open_ids", []),
+        }
+        tmp_path = self.echo_folder_state_path.with_suffix(self.echo_folder_state_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(self.echo_folder_state_path)
+
+    def _remember_echo_drive_folder_reader(self, open_id: str) -> None:
+        state = self._load_echo_drive_folder_state()
+        readers = state.get("reader_open_ids")
+        if not isinstance(readers, list):
+            readers = []
+        if open_id in readers:
+            return
+        readers.append(open_id)
+        state["reader_open_ids"] = readers
+        self.echo_folder_state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.echo_folder_state_path.with_suffix(self.echo_folder_state_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(self.echo_folder_state_path)
+
+    def echo_drive_folder_reader_exists(self, open_id: str) -> bool:
+        state = self._load_echo_drive_folder_state()
+        if str(state.get("drive_folder_token") or "").strip() != (self.drive_folder_token or ""):
+            return False
+        readers = state.get("reader_open_ids")
+        return isinstance(readers, list) and open_id in readers
 
     def _access_token(self, *, require_user: bool = False) -> str:
         if require_user:
@@ -186,7 +275,7 @@ class FeishuKnowledgeBaseClient:
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise FeishuKnowledgeBaseError(f"飞书回显 HTTP {exc.code}: {detail}") from exc
+            raise FeishuKnowledgeBaseError(_format_feishu_http_error("飞书回显", exc.code, detail)) from exc
         except urllib.error.URLError as exc:
             raise FeishuKnowledgeBaseError(f"飞书回显网络请求失败: {exc}") from exc
 
@@ -237,7 +326,7 @@ class FeishuKnowledgeBaseClient:
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise FeishuKnowledgeBaseError(f"上传飞书文件夹文件失败 HTTP {exc.code}: {detail}") from exc
+            raise FeishuKnowledgeBaseError(_format_feishu_http_error("上传飞书文件夹文件失败", exc.code, detail)) from exc
         except urllib.error.URLError as exc:
             raise FeishuKnowledgeBaseError(f"上传飞书文件夹文件网络失败: {exc}") from exc
 
@@ -282,6 +371,58 @@ class FeishuKnowledgeBaseClient:
             )
         )
         return data
+
+    def grant_drive_folder_reader(
+        self,
+        open_id: str,
+        *,
+        force: bool = True,
+        perm: str = DRIVE_FOLDER_REQUESTER_PERMISSION,
+    ) -> dict[str, Any]:
+        open_id = open_id.strip()
+        if not open_id:
+            return {"ok": False, "skipped": True, "reason": "empty_open_id"}
+        if not force and self.echo_drive_folder_reader_exists(open_id):
+            return {"ok": True, "skipped": True, "member_id": open_id}
+        folder_token = self.drive_folder_token or self.root_node_token
+        if not folder_token:
+            raise FeishuKnowledgeBaseError("缺少飞书文件夹 token，无法添加阅读权限。")
+        data = self._data_or_raise(
+            self.request(
+                "POST",
+                f"/drive/v1/permissions/{urllib.parse.quote(folder_token)}/members",
+                payload={"member_type": "openid", "member_id": open_id, "perm": perm},
+                query={"type": "folder"},
+            )
+        )
+        self._remember_echo_drive_folder_reader(open_id)
+        return {"ok": True, "data": data, "member_id": open_id, "perm": perm}
+
+    def delete_drive_folder(self, folder_token: str = "") -> dict[str, Any]:
+        token = folder_token.strip() or self.drive_folder_token or self.root_node_token
+        if not token:
+            raise FeishuKnowledgeBaseError("缺少飞书文件夹 token，无法删除飞书回显文件夹。")
+        data = self._data_or_raise(
+            self.request(
+                "DELETE",
+                f"/drive/v1/files/{urllib.parse.quote(token)}",
+                query={"type": "folder"},
+            )
+        )
+        return {"ok": True, "data": data, "folder_token": token, "task_id": data.get("task_id", "")}
+
+    def check_drive_task(self, task_id: str) -> dict[str, Any]:
+        task_id = task_id.strip()
+        if not task_id:
+            raise FeishuKnowledgeBaseError("缺少飞书异步任务 ID。")
+        data = self._data_or_raise(
+            self.request(
+                "GET",
+                "/drive/v1/files/task_check",
+                query={"task_id": task_id},
+            )
+        )
+        return {"ok": True, "task_id": task_id, "status": data.get("status", ""), "data": data}
 
     def ensure_drive_folder_path(self, folder_parts: tuple[str, ...]) -> dict[str, Any]:
         parent_token = self.drive_folder_token or self.root_node_token
@@ -348,17 +489,24 @@ class FeishuKnowledgeBaseClient:
     def ensure_space(self) -> dict[str, Any]:
         if self.target_type == DRIVE_FOLDER_TARGET:
             folder_token = self.drive_folder_token or self.root_node_token
+            created = False
             if not folder_token:
-                raise FeishuKnowledgeBaseError(
-                    "缺少飞书文件夹 token。请配置 FEISHU_ECHO_DRIVE_FOLDER_TOKEN。"
-                )
+                folder = self.create_drive_folder(self.space_name, "")
+                folder_token = str(folder.get("token") or "")
+                if not folder_token:
+                    raise FeishuKnowledgeBaseError(f"飞书自动创建文件夹失败，响应缺少 token: {folder}")
+                self.drive_folder_token = folder_token
+                self.drive_folder_url = str(folder.get("url") or "")
+                self._save_echo_drive_folder_state(folder)
+                created = True
             self.drive_folder_token = folder_token
             return {
                 "space_id": f"drive:{folder_token}",
                 "name": self.space_name,
-                "created": False,
+                "created": created,
                 "target_type": DRIVE_FOLDER_TARGET,
                 "root_node_token": folder_token,
+                "url": self.drive_folder_url,
             }
 
         if self.space_id:
@@ -446,7 +594,6 @@ class FeishuKnowledgeBaseClient:
                     "parent_type": self.parent_type,
                     "parent_node": parent_node_token,
                     "size": len(file_bytes),
-                    "checksum": hashlib.md5(file_bytes).hexdigest(),
                 },
                 "file",
                 image_path,
@@ -461,6 +608,7 @@ def sync_case_materials_to_knowledge_base(
     state_path: Path | str = STATE_PATH,
     client: FeishuKnowledgeBaseClient | None = None,
     force_upload: bool | None = None,
+    reader_open_id: str | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root)
     sync_client = client or FeishuKnowledgeBaseClient()
@@ -474,6 +622,7 @@ def sync_case_materials_to_knowledge_base(
         "root": str(root_path),
         "space_name": sync_client.space_name,
         "space_id": "",
+        "space_url": "",
         "target_type": getattr(sync_client, "target_type", WIKI_TARGET),
         "created_space": False,
         "total": 0,
@@ -482,12 +631,27 @@ def sync_case_materials_to_knowledge_base(
         "failed": 0,
         "created_folders": 0,
         "ensured_folders": 0,
+        "reader_granted": False,
+        "folder_permission_granted": False,
+        "folder_permission_role": DRIVE_FOLDER_REQUESTER_PERMISSION,
+        "reader_permission_error": "",
         "errors": [],
     }
 
     space = sync_client.ensure_space()
     summary["space_id"] = space.get("space_id", "")
+    summary["space_url"] = space.get("url", "")
     summary["created_space"] = bool(space.get("created"))
+    if reader_open_id and getattr(sync_client, "target_type", "") == DRIVE_FOLDER_TARGET:
+        try:
+            grant_reader = getattr(sync_client, "grant_drive_folder_reader")
+            grant_result = grant_reader(reader_open_id)
+            granted = bool(grant_result.get("ok"))
+            summary["reader_granted"] = granted
+            summary["folder_permission_granted"] = granted
+            summary["folder_permission_role"] = grant_result.get("perm") or DRIVE_FOLDER_REQUESTER_PERMISSION
+        except Exception as exc:
+            summary["reader_permission_error"] = str(exc)
 
     images = iter_case_material_images(root_path)
     summary["total"] = len(images)
@@ -534,15 +698,114 @@ def sync_case_materials_to_knowledge_base(
     return summary
 
 
+def manage_echo_drive_folder(
+    *,
+    drive_folder_token: str = "",
+    state_path: Path | str = ECHO_FOLDER_STATE_PATH,
+    delete_folder: bool = False,
+    grant_reader_open_id: str = "",
+    clear_state: bool = False,
+    task_id: str = "",
+) -> dict[str, Any]:
+    token, state = resolve_echo_drive_folder_token(drive_folder_token=drive_folder_token, state_path=state_path)
+    client = FeishuKnowledgeBaseClient(drive_folder_token=token)
+    client.echo_folder_state_path = Path(state_path)
+    if task_id:
+        return client.check_drive_task(task_id)
+
+    result: dict[str, Any] = {
+        "ok": True,
+        "drive_folder_token": token,
+        "url": state.get("url", ""),
+        "deleted": False,
+        "delete_task_id": "",
+        "reader_granted": False,
+        "folder_permission_role": DRIVE_FOLDER_REQUESTER_PERMISSION,
+        "state_cleared": False,
+        "errors": [],
+    }
+    if not token:
+        result["ok"] = False
+        result["errors"].append("缺少飞书文件夹 token；请传 --drive-folder-token 或提供 echo folder state。")
+        return result
+
+    if grant_reader_open_id:
+        try:
+            grant = client.grant_drive_folder_reader(grant_reader_open_id)
+            result["reader_granted"] = bool(grant.get("ok"))
+            result["folder_permission_role"] = grant.get("perm") or DRIVE_FOLDER_REQUESTER_PERMISSION
+        except Exception as exc:
+            result["errors"].append(str(exc))
+
+    if delete_folder:
+        try:
+            deleted = client.delete_drive_folder(token)
+            result["deleted"] = bool(deleted.get("ok"))
+            result["delete_task_id"] = str(deleted.get("task_id") or "")
+        except Exception as exc:
+            result["errors"].append(str(exc))
+
+    if clear_state and not result["errors"]:
+        echo_state_path = Path(state_path)
+        echo_state_path.parent.mkdir(parents=True, exist_ok=True)
+        echo_state_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "name": state.get("name", DEFAULT_SPACE_NAME),
+                    "deleted_drive_folder_token": token if delete_folder else "",
+                    "url": state.get("url", ""),
+                    "cleared_at": int(time.time()),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        result["state_cleared"] = True
+
+    result["ok"] = not result["errors"]
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync case_materials images into a Feishu Drive folder.")
     parser.add_argument("--root", default=str(CASE_MATERIALS_DIR), help="Local case_materials directory.")
     parser.add_argument("--state", default=str(STATE_PATH), help="Local sync state JSON path.")
     parser.add_argument("--force", action="store_true", help="Upload files even when local fingerprint is unchanged.")
+    parser.add_argument("--reader-open-id", default="", help="Grant this Feishu open_id read access to the echo folder.")
+    parser.add_argument("--drive-folder-token", default="", help="Explicit Feishu Drive folder token for management commands.")
+    parser.add_argument("--echo-folder-state", default=str(ECHO_FOLDER_STATE_PATH), help="Echo folder state JSON path.")
+    parser.add_argument("--grant-reader-open-id", default="", help="Grant this open_id full access without running image sync.")
+    parser.add_argument("--delete-echo-folder", action="store_true", help="Delete the echo Drive folder recorded in state or --drive-folder-token.")
+    parser.add_argument("--clear-echo-folder-state", action="store_true", help="Clear the echo folder state after a successful management command.")
+    parser.add_argument("--task-id", default="", help="Check a Feishu Drive async task status.")
     args = parser.parse_args()
+    if args.delete_echo_folder or args.grant_reader_open_id or args.task_id:
+        print(
+            json.dumps(
+                manage_echo_drive_folder(
+                    drive_folder_token=args.drive_folder_token,
+                    state_path=args.echo_folder_state,
+                    delete_folder=args.delete_echo_folder,
+                    grant_reader_open_id=args.grant_reader_open_id,
+                    clear_state=args.clear_echo_folder_state,
+                    task_id=args.task_id,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
     print(
         json.dumps(
-            sync_case_materials_to_knowledge_base(root=args.root, state_path=args.state, force_upload=args.force),
+            sync_case_materials_to_knowledge_base(
+                root=args.root,
+                state_path=args.state,
+                force_upload=args.force,
+                reader_open_id=args.reader_open_id,
+            ),
             ensure_ascii=False,
             indent=2,
         )

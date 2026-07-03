@@ -1033,14 +1033,14 @@ class FeishuChannel(Channel):
     def _is_yqs_unmentioned_command(text: str) -> bool:
         return _normalize_yqs_text(text) in YQS_UNMENTIONED_COMMANDS
 
-    async def _handle_yqs_direct_command(self, text: str, message_id: str, chat_id: str) -> bool:
+    async def _handle_yqs_direct_command(self, text: str, message_id: str, chat_id: str, user_id: str = "") -> bool:
         del chat_id
         normalized = _normalize_yqs_text(text)
         if normalized in YQS_FORM_COMMANDS:
             await self._reply_yqs_form_link(message_id)
             return True
         if normalized in YQS_ECHO_COMMANDS:
-            await self._reply_yqs_echo_sync(message_id)
+            await self._reply_yqs_echo_sync(message_id, user_id=user_id)
             return True
         return False
 
@@ -1065,9 +1065,9 @@ class FeishuChannel(Channel):
             ),
         )
 
-    async def _reply_yqs_echo_sync(self, message_id: str) -> None:
+    async def _reply_yqs_echo_sync(self, message_id: str, user_id: str = "") -> None:
         try:
-            summary = await asyncio.to_thread(self._sync_yqs_echo_target)
+            summary = await asyncio.to_thread(self._sync_yqs_echo_target, user_id)
         except Exception as exc:
             logger.exception("[Feishu] failed to sync YQS echo folder")
             await self._reply_card(message_id, f"**飞书文件夹回显失败**\n\n{exc}")
@@ -1087,6 +1087,20 @@ class FeishuChannel(Channel):
             f"已跳过：{summary.get('skipped', 0)} 张",
             f"已创建目录：{summary.get('created_folders', 0)} 个",
         ]
+        space_url = summary.get("space_url")
+        if isinstance(space_url, str) and space_url:
+            lines.insert(3, f"文件夹链接：[打开文件夹]({space_url})")
+        if summary.get("folder_permission_granted") or summary.get("reader_granted"):
+            role = summary.get("folder_permission_role") or "full_access"
+            if role == "full_access":
+                lines.append("云盘权限：已给本次发起人开通可管理权限（可修改/删除）")
+            elif role == "edit":
+                lines.append("云盘权限：已给本次发起人开通可编辑权限")
+            else:
+                lines.append("云盘权限：已给本次发起人开通阅读权限")
+        reader_permission_error = summary.get("reader_permission_error")
+        if isinstance(reader_permission_error, str) and reader_permission_error:
+            lines.append(f"云盘权限：开通失败 `{reader_permission_error}`")
         if summary.get("failed"):
             lines.append(f"失败：{summary.get('failed', 0)} 张")
         errors = summary.get("errors")
@@ -1098,14 +1112,14 @@ class FeishuChannel(Channel):
         await self._reply_card(message_id, "\n".join(lines))
 
     @staticmethod
-    def _sync_yqs_echo_target() -> dict[str, Any]:
+    def _sync_yqs_echo_target(reader_open_id: str = "") -> dict[str, Any]:
         project_root = _yqs_project_root()
         python_dir = project_root / "python"
         if str(python_dir) not in sys.path:
             sys.path.insert(0, str(python_dir))
         from feishu_knowledge_base import sync_case_materials_to_knowledge_base
 
-        return sync_case_materials_to_knowledge_base(root=project_root / "case_materials")
+        return sync_case_materials_to_knowledge_base(root=project_root / "case_materials", reader_open_id=reader_open_id)
 
     def _on_message(self, event) -> None:
         """Called by lark-oapi when a message is received (runs in lark thread)."""
@@ -1147,7 +1161,7 @@ class FeishuChannel(Channel):
             if self._is_yqs_direct_command(command_text):
                 if self._main_loop and self._main_loop.is_running():
                     fut = asyncio.run_coroutine_threadsafe(
-                        self._handle_yqs_direct_command(command_text, msg_id, chat_id),
+                        self._handle_yqs_direct_command(command_text, msg_id, chat_id, sender_id),
                         self._main_loop,
                     )
                     fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "yqs_direct_command", mid))
